@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="QAReadar">
+  <rect width="128" height="128" fill="#f5efe3"/>
+  <rect x="34" y="34" width="60" height="60" fill="#b8402a" transform="rotate(45 64 64)"/>
+  <text x="64" y="76" font-family="Georgia, serif" font-size="34" font-style="italic" font-weight="700" text-anchor="middle" fill="#fffdf8">md</text>
+</svg>

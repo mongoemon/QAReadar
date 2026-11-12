@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Sign in — Demo Shop</title>
+    <style>
+      body { font: 15px/1.5 system-ui, sans-serif; max-width: 520px; margin: 24px auto; padding: 0 16px; }
+      nav a { margin-right: 12px; }
+      form { display: grid; gap: 10px; margin-block: 16px; }
+      input, button { padding: 8px 10px; font: inherit; }
+      .btn { cursor: pointer; }
+      .btn.primary { background: #1f6feb; color: #fff; border: 0; }
+      table { border-collapse: collapse; width: 100%; }
+      td, th { border: 1px solid #ccc; padding: 4px 8px; text-align: left; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <nav aria-label="Main">
+        <a href="/">Home</a>
+        <a href="/products">Products</a>
+        <a href="/cart" title="Open your cart">Cart</a>
+      </nav>
+    </header>
+    <main>
+      <h1>Sign in</h1>
+      <form id="login-form">
+        <label for="email">Email</label>
+        <input id="email" name="email" type="email" placeholder="you@example.com" data-testid="login-email" />
+
+        <label for="password">Password</label>
+        <input id="password" name="password" type="password" placeholder="Your password" />
+
+        <label><input type="checkbox" name="remember" /> Remember me</label>
+
+        <button type="submit" class="btn primary" data-testid="login-submit">Sign in</button>
+        <button type="button" class="btn">Cancel</button>
+        <a href="/forgot-password">Forgot password?</a>
+      </form>
+
+      <h2>Recent orders</h2>
+      <table>
+        <thead><tr><th>Order</th><th>Status</th><th></th></tr></thead>
+        <tbody>
+          <tr><td>#1001</td><td>Shipped</td><td><button class="btn">View</button></td></tr>
+          <tr><td>#1002</td><td>Pending</td><td><button class="btn">View</button></td></tr>
+        </tbody>
+      </table>
+    </main>
+  </body>
+</html>

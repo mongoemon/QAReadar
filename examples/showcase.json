@@ -1,0 +1,16 @@
+{
+  "app": "coffee-shop-demo",
+  "openNow": true,
+  "deliveryZone": null,
+  "ชื่อร้าน": "ร้านกาแฟตัวอย่าง",
+  "e-mail": "hello@example.com",
+  "products": [
+    { "id": 1, "name": "Espresso", "price": 55, "tags": ["coffee", "hot"] },
+    { "id": 2, "name": "Cold Brew", "price": 85, "tags": ["coffee", "cold"] },
+    { "id": 3, "name": "ชาเขียวมัทฉะ", "price": 95, "tags": ["tea"] }
+  ],
+  "orders": [
+    { "orderId": "A-1001", "items": [{ "productId": 1, "qty": 2 }], "paid": true },
+    { "orderId": "A-1002", "items": [{ "productId": 2, "qty": 1 }], "paid": false }
+  ]
+}

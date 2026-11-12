@@ -1,0 +1,13 @@
+{
+  "name": "QAReadar — Markdown & JSON Path",
+  "short_name": "QAReadar",
+  "description": "Edit Markdown files and find JSON paths, entirely in your browser.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f5efe3",
+  "theme_color": "#b8402a",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

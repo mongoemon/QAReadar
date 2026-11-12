@@ -1,0 +1,5 @@
+{"ts":"2026-11-12T09:00:01Z","type":"login","user":"nok","ok":true}
+{"ts":"2026-11-12T09:02:13Z","type":"order","user":"nok","orderId":"A-1001","total":175}
+{"ts":"2026-11-12T09:05:40Z","type":"login","user":"ton","ok":false,"reason":"bad password"}
+
+{"ts":"2026-11-12T09:07:22Z","type":"order","user":"mali","orderId":"A-1002","total":85}

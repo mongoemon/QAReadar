@@ -1,0 +1,22 @@
+{
+  "name": "qareadar",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@toast-ui/editor": "^3.2.2",
+    "yaml": "^2.9.1"
+  },
+  "devDependencies": {
+    "linkedom": "^0.18.15",
+    "typescript": "7.0.2",
+    "vite": "8.3.8",
+    "vitest": "5.0.5"
+  }
+}
