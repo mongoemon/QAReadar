@@ -33,6 +33,19 @@ describe('annotateSource', () => {
     expect(out).toContain('var a = "<i>"')
   })
 
+  it('does not split a tag name at a non-breaking space (the parser keeps it in the name)', () => {
+    expect(annotateSource('<div class="x">t</div>')).toBe(`<div class="x" ${MARKER_ATTR}="0">t</div>`)
+  })
+
+  it('recognises the degenerate comments <!--> and <!--->', () => {
+    expect(annotateSource('<!--><b>x</b>')).toBe(`<!--><b ${MARKER_ATTR}="5">x</b>`)
+    expect(annotateSource('<!---><b>x</b>')).toBe(`<!---><b ${MARKER_ATTR}="6">x</b>`)
+  })
+
+  it('ends a comment at --!> as well as -->', () => {
+    expect(annotateSource('<!-- a --!><b>x</b>')).toBe(`<!-- a --!><b ${MARKER_ATTR}="11">x</b>`)
+  })
+
   it('is not fooled by > inside a quoted attribute value', () => {
     const out = annotateSource('<a title="a>b" href="x">t</a>')
     expect(out.match(new RegExp(MARKER_ATTR, 'g'))).toHaveLength(1)
@@ -127,6 +140,29 @@ describe('elementMarkerAt', () => {
   it('is not fooled by > inside a quoted attribute value', () => {
     const source = '<a title="a>b" href="x">t</a>'
     expect(elementMarkerAt(source, at(source, 'href'))).toBe(0)
+  })
+
+  it('ignores the self-closing slash on ordinary HTML elements, as the parser does', () => {
+    const source = '<div/>text'
+    expect(elementMarkerAt(source, at(source, 'text'))).toBe(0)
+  })
+
+  it('honours the self-closing slash inside svg', () => {
+    const source = '<svg><circle/>t</svg>'
+    expect(elementMarkerAt(source, at(source, 't</svg>'))).toBe(0)
+  })
+
+  it('does not let an end tag with no open match disturb the stack', () => {
+    const source = '<p>a</i>b</p>'
+    expect(elementMarkerAt(source, at(source, 'b</p>'))).toBe(0)
+  })
+
+  it('stays fast on deep markup with many unmatched end tags', () => {
+    const source = '<li>item<p>para</i></b>'.repeat(20_000)
+    const started = performance.now()
+    elementMarkerAt(source, source.length - 1)
+    startTagRange(source, 0)
+    expect(performance.now() - started).toBeLessThan(1500)
   })
 
   it('returns null outside any element', () => {

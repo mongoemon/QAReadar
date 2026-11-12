@@ -151,7 +151,8 @@ export function createLocatorTab(): TabController {
     if (input.value !== renderedSource) return
     const marker = elementMarkerAt(renderedSource, input.selectionStart)
     const target = marker === null ? null : preview.findByMarker(marker)
-    if (!target) return
+    // <html> cannot be picked by clicking the preview either, and it has no parent to step up to.
+    if (!target || target === target.ownerDocument.documentElement) return
     select(target)
     preview.reveal(target)
   }

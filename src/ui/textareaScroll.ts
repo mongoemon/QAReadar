@@ -31,6 +31,8 @@ function offsetTop(textarea: HTMLTextAreaElement, offset: number): number {
 
 /** Scroll so the line containing `offset` is visible, roughly a third of the way down. */
 export function scrollOffsetIntoView(textarea: HTMLTextAreaElement, offset: number): void {
+  // Nothing to scroll (short text), or hidden: a zero-width mirror would wrap every character.
+  if (textarea.clientWidth === 0 || textarea.scrollHeight <= textarea.clientHeight) return
   const top = offsetTop(textarea, offset)
   const lineHeight = Number.parseFloat(getComputedStyle(textarea).lineHeight) || 20
   const visibleFrom = textarea.scrollTop

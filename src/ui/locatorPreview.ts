@@ -92,11 +92,17 @@ export function createPreview(onPick: (target: Element) => void): Preview {
   return {
     element,
     load(source: string): void {
-      live = false
+      const next = source.trim() === '' ? '' : buildSrcdoc(source)
       picked = null
       hoverBox.hidden = true
       pickedBox.hidden = true
-      frame.srcdoc = source.trim() === '' ? '' : buildSrcdoc(source)
+      // Unchanged page: keep the loaded document (no reload, no flicker). Not every engine fires
+      // `load` when srcdoc is set to the value it already has, and `live` is only restored by
+      // that event — so reassigning here could leave the preview unclickable. If a load is still
+      // pending, its own event restores `live`.
+      if (next === frame.srcdoc) return
+      live = false
+      frame.srcdoc = next
     },
     highlight(target: Element | null): void {
       picked = target
