@@ -19,6 +19,8 @@ Build ใช้ `base: './'` จึงนำ `dist/` ไปวางบน stati
 
 คำสั่งเดียวจบ: เพิ่มเลขเวอร์ชัน, เพิ่ม changelog, รันเทสต์ + build, commit, push และ deploy ขึ้น Cloudflare Pages (https://qareadar.pages.dev)
 
+📖 **คู่มือฉบับเต็ม: [docs/RELEASE.md](docs/RELEASE.md)** (เตรียมเครื่อง, การเลือก patch/minor/major, changelog, แก้ปัญหา, การย้อนกลับ)
+
 ```bash
 npm run release -- patch "fix: แก้ค้นหา JSON ไม่สนตัวพิมพ์"     # 1.2.0 → 1.2.1
 npm run release -- minor "feat: export locator เป็น CSV"        # 1.2.0 → 1.3.0
