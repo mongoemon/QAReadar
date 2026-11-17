@@ -1,5 +1,6 @@
 import './style.css'
 import type { Command } from './lib/commands'
+import { attachChangelog } from './ui/changelog'
 import { openTextFile, readFile, readHandle, saveTextFile, type FileHandleLike, type FileKind, type OpenedFile } from './lib/fileAccess'
 import { extensionOf, looksBinary, sniffKind, type SniffedKind } from './lib/fileKind'
 import { makeRecentId } from './lib/recent'
@@ -87,6 +88,18 @@ function githubLink(): HTMLAnchorElement {
   )
 }
 
+const versionBadge = el(
+  'button',
+  {
+    class: 'version',
+    type: 'button',
+    title: `Version ${__APP_VERSION__} — hold 3 s for the changelog`,
+    'aria-label': `Version ${__APP_VERSION__}. Press and hold for 3 seconds to show the changelog`,
+  },
+  `v${__APP_VERSION__}`,
+)
+const changelog = attachChangelog(versionBadge, __APP_VERSION__)
+
 const header = el(
   'header',
   { class: 'topbar' },
@@ -94,7 +107,7 @@ const header = el(
     'div',
     { class: 'brand-wrap' },
     el('h1', { class: 'brand' }, 'QAReadar'),
-    el('span', { class: 'version', title: `Version ${__APP_VERSION__}` }, `v${__APP_VERSION__}`),
+    versionBadge,
   ),
   tabList,
   chip,
@@ -217,6 +230,7 @@ const palette = createPalette((): Command[] => [
   })),
   { id: 'view.theme', title: 'View: Change theme (auto / light / dark)', run: cycleTheme },
   { id: 'view.focus', title: 'View: Toggle focus mode', run: toggleFocusMode },
+  { id: 'help.changelog', title: `Help: Changelog (v${__APP_VERSION__})`, run: changelog.open },
   ...recents.map((stored): Command => ({
     id: `recent.${stored.entry.id}`,
     title: `Recent: ${stored.entry.name}`,
