@@ -24,8 +24,8 @@ const codeOf = (list: readonly FormattedLocator[], label: string): FormattedLoca
   list.find((item) => item.label === label)
 
 describe('framework registry', () => {
-  it('offers Playwright and Robot Framework', () => {
-    expect(FRAMEWORKS.map((f) => f.id)).toEqual(['playwright', 'robot'])
+  it('offers Playwright, Robot Framework, Cucumber Java and Playwright Java', () => {
+    expect(FRAMEWORKS.map((f) => f.id)).toEqual(['playwright', 'robot', 'cucumber-java', 'playwright-java'])
   })
 
   it('looks frameworks up by id and rejects unknown ids', () => {
@@ -166,6 +166,85 @@ describe('Robot Framework locators', () => {
 
   it('counts exact attribute matches', () => {
     expect(codeOf(list, 'Test ID')?.matches).toBe(1)
+  })
+})
+
+describe('Cucumber Java locators', () => {
+  const doc = dom(FORM)
+  const list = locatorsFor('cucumber-java', pick(doc, '#email'))
+
+  it('uses Selenium By strategies', () => {
+    expect(codeOf(list, 'ID')?.code).toBe('driver.findElement(By.id("email"))')
+    expect(codeOf(list, 'Name')?.code).toBe('driver.findElement(By.name("email"))')
+    expect(codeOf(list, 'Test ID')?.code).toBe('driver.findElement(By.cssSelector("[data-testid=\\"email-input\\"]"))')
+    expect(codeOf(list, 'XPath')?.code).toBe('driver.findElement(By.xpath("//*[@id=\\"email\\"]"))')
+    expect(codeOf(list, 'Test ID')?.matches).toBe(1)
+  })
+
+  it('omits locators Selenium cannot express', () => {
+    expect(codeOf(list, 'Role')).toBeUndefined()
+    expect(codeOf(list, 'Label')).toBeUndefined()
+  })
+
+  it('offers link text and visible-text xpath', () => {
+    expect(codeOf(locatorsFor('cucumber-java', pick(doc, 'a')), 'Link text')?.code).toBe(
+      'driver.findElement(By.linkText("Forgot password?"))',
+    )
+    expect(codeOf(locatorsFor('cucumber-java', pick(doc, 'button[type=submit]')), 'Text')?.code).toBe(
+      'driver.findElement(By.xpath("//button[normalize-space(.)=\\"Sign in\\"]"))',
+    )
+  })
+
+  it('escapes backslashes, quotes and control characters in Java strings', () => {
+    const tricky = dom('<input id="a" placeholder="a\\b\tc">')
+    expect(codeOf(locatorsFor('cucumber-java', pick(tricky, 'input')), 'Placeholder')?.code).toBe(
+      'driver.findElement(By.cssSelector("[placeholder=\\"a\\\\\\\\b\\tc\\"]"))',
+    )
+  })
+})
+
+describe('Playwright Java locators', () => {
+  const doc = dom(FORM)
+  const list = locatorsFor('playwright-java', pick(doc, '#email'))
+
+  it('formats each kind with Java string literals', () => {
+    expect(codeOf(list, 'Test ID')?.code).toBe('page.getByTestId("email-input")')
+    expect(codeOf(list, 'Label')?.code).toBe('page.getByLabel("Email")')
+    expect(codeOf(list, 'Placeholder')?.code).toBe('page.getByPlaceholder("you@example.com")')
+    expect(codeOf(list, 'ID')?.code).toBe('page.locator("#email")')
+    expect(codeOf(list, 'Name')?.code).toBe('page.locator("[name=\\"email\\"]")')
+    expect(codeOf(list, 'XPath')?.code).toBe('page.locator("xpath=//*[@id=\\"email\\"]")')
+    expect(codeOf(list, 'Test ID')?.matches).toBe(1)
+  })
+
+  it('builds a role locator with AriaRole and GetByRoleOptions', () => {
+    const button = locatorsFor('playwright-java', pick(doc, 'button[type=submit]'))
+    expect(codeOf(button, 'Role')?.code).toBe(
+      'page.getByRole(AriaRole.BUTTON, new Page.GetByRoleOptions().setName("Sign in"))',
+    )
+    expect(codeOf(button, 'Role')?.matches).toBe(1)
+    expect(codeOf(button, 'Text')?.code).toBe('page.getByText("Sign in")')
+  })
+
+  it('covers alt text and title', () => {
+    expect(codeOf(locatorsFor('playwright-java', pick(doc, 'img')), 'Alt text')?.code).toBe(
+      'page.getByAltText("Company logo")',
+    )
+    expect(codeOf(locatorsFor('playwright-java', pick(doc, 'a')), 'Title')?.code).toBe('page.getByTitle("Reset it")')
+  })
+
+  it('wraps non-default test id attributes in a css locator', () => {
+    const other = dom('<button data-cy="save">Save</button>')
+    expect(codeOf(locatorsFor('playwright-java', pick(other, 'button')), 'Test ID')?.code).toBe(
+      'page.locator("[data-cy=\\"save\\"]")',
+    )
+  })
+
+  it('escapes quotes and backslashes', () => {
+    const tricky = dom('<button>Say "hi" \\ now</button>')
+    expect(codeOf(locatorsFor('playwright-java', pick(tricky, 'button')), 'Text')?.code).toBe(
+      'page.getByText("Say \\"hi\\" \\\\ now")',
+    )
   })
 })
 

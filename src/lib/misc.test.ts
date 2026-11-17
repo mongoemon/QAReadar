@@ -3,7 +3,31 @@ import { filterCommands, type Command } from './commands'
 import { buildHtmlDocument, escapeHtml } from './exportHtml'
 import { pushRecent, type RecentEntry } from './recent'
 import { nextTheme, resolveDark } from './theme'
-import { cycleWidth, stepFontSize } from './readingPrefs'
+import { SPLIT_DEFAULT, clampSplit, cycleWidth, isWidthPref, stepFontSize } from './readingPrefs'
+
+describe('isWidthPref', () => {
+  it('accepts only the known widths (e.g. from localStorage)', () => {
+    expect(['narrow', 'normal', 'wide'].every(isWidthPref)).toBe(true)
+    expect(isWidthPref('huge')).toBe(false)
+    expect(isWidthPref(null)).toBe(false)
+  })
+})
+
+describe('clampSplit', () => {
+  it('keeps values inside 20–80%', () => {
+    expect(clampSplit(35)).toBe(35)
+    expect(clampSplit(5)).toBe(20)
+    expect(clampSplit(99)).toBe(80)
+  })
+  it('parses stored strings and rounds to one decimal', () => {
+    expect(clampSplit('62.345')).toBe(62.3)
+  })
+  it('falls back to the default for missing or junk values', () => {
+    expect(clampSplit(null)).toBe(SPLIT_DEFAULT)
+    expect(clampSplit('abc')).toBe(SPLIT_DEFAULT)
+    expect(clampSplit(Number.NaN)).toBe(SPLIT_DEFAULT)
+  })
+})
 
 const cmd = (id: string, title: string): Command => ({ id, title, run: () => {} })
 

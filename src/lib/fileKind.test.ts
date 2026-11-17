@@ -1,5 +1,15 @@
 import { describe, expect, it } from 'vitest'
-import { extensionOf, sniffKind } from './fileKind'
+import { extensionOf, looksBinary, sniffKind } from './fileKind'
+
+describe('looksBinary', () => {
+  it('flags content with NUL bytes, such as a PNG header', () => {
+    expect(looksBinary('�PNG\r\n\u001a\n\u0000\u0000\u0000\rIHDR')).toBe(true)
+  })
+  it('accepts ordinary text, including Thai and emoji', () => {
+    expect(looksBinary('# หัวข้อ\n\nhello 👋')).toBe(false)
+    expect(looksBinary('')).toBe(false)
+  })
+})
 
 describe('extensionOf', () => {
   it('lowercases the extension', () => expect(extensionOf('A.JSON')).toBe('json'))

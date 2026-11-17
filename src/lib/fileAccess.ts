@@ -19,6 +19,10 @@ export interface OpenedFile {
   readonly name: string
   readonly text: string
   readonly handle: FileHandleLike | null
+  /** File's lastModified at read time; lets a tab detect edits made outside the app. */
+  readonly lastModified?: number
+  /** Built-in sample document: not worth remembering across reloads. */
+  readonly sample?: boolean
 }
 
 export interface DocSnapshot {
@@ -70,7 +74,57 @@ export async function readFile(
       `File is too large (${(file.size / 1048576).toFixed(1)} MB, max ${MAX_FILE_BYTES / 1048576} MB)`,
     )
   }
-  return { name: file.name, text: await file.text(), handle }
+  return { name: file.name, text: await file.text(), handle, lastModified: file.lastModified }
+}
+
+interface PermissionHandle extends FileHandleLike {
+  queryPermission?(descriptor: { mode: 'read' }): Promise<PermissionState>
+  requestPermission?(descriptor: { mode: 'read' }): Promise<PermissionState>
+}
+
+/**
+ * Read permission for a stored handle. Browsers reset it after a reload; asking again
+ * (`prompt: true`) is only allowed from a user gesture, so background checks pass false.
+ */
+export async function hasReadPermission(handle: FileHandleLike, prompt: boolean): Promise<boolean> {
+  const h = handle as PermissionHandle
+  if (!h.queryPermission) return true
+  try {
+    if ((await h.queryPermission({ mode: 'read' })) === 'granted') return true
+    return prompt && (await h.requestPermission?.({ mode: 'read' })) === 'granted'
+  } catch {
+    return false
+  }
+}
+
+export type HandleRead =
+  | { readonly status: 'ok'; readonly file: OpenedFile }
+  | { readonly status: 'missing' }
+  | { readonly status: 'denied' }
+
+/** Moved, renamed or deleted files surface as NotFoundError from getFile(). */
+export const isMissingFileError = (e: unknown): boolean =>
+  typeof e === 'object' && e !== null && (e as { name?: unknown }).name === 'NotFoundError'
+
+/** Re-read a file through its handle without ever throwing for the "file is gone" case. */
+export async function readHandle(handle: FileHandleLike, prompt: boolean): Promise<HandleRead> {
+  if (!(await hasReadPermission(handle, prompt))) return { status: 'denied' }
+  try {
+    return { status: 'ok', file: await readFile(await handle.getFile(), handle) }
+  } catch (e) {
+    if (isMissingFileError(e)) return { status: 'missing' }
+    throw e
+  }
+}
+
+/** Cheap existence/modification probe for background checks (no text read). */
+export async function statHandle(handle: FileHandleLike): Promise<number | 'missing' | 'unknown'> {
+  if (!(await hasReadPermission(handle, false))) return 'unknown'
+  try {
+    return (await handle.getFile()).lastModified
+  } catch (e) {
+    return isMissingFileError(e) ? 'missing' : 'unknown'
+  }
 }
 
 function openWithInput(kinds: readonly FileKind[]): Promise<OpenedFile | null> {

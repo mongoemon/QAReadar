@@ -1,7 +1,7 @@
 import './style.css'
 import type { Command } from './lib/commands'
-import { openTextFile, readFile, saveTextFile, type FileHandleLike, type FileKind, type OpenedFile } from './lib/fileAccess'
-import { extensionOf, sniffKind, type SniffedKind } from './lib/fileKind'
+import { openTextFile, readFile, readHandle, saveTextFile, type FileHandleLike, type FileKind, type OpenedFile } from './lib/fileAccess'
+import { extensionOf, looksBinary, sniffKind, type SniffedKind } from './lib/fileKind'
 import { makeRecentId } from './lib/recent'
 import { listRecent, saveRecent, type StoredRecent } from './lib/recentStore'
 import { readStored, writeStored } from './lib/safeStorage'
@@ -34,6 +34,7 @@ const tabById = (id: SniffedKind): TabController | undefined =>
 
 /** Route by extension; for unknown extensions, sniff the content (JSON vs markdown). */
 const tabFor = (file: OpenedFile): TabController | undefined =>
+  looksBinary(file.text) ? undefined :
   tabs.find((tab) => openKindOf(tab).extensions.includes(extensionOf(file.name))) ??
   tabById(sniffKind(file.text))
 
@@ -135,11 +136,6 @@ function setFocusMode(on: boolean): void {
 const toggleFocusMode = (): void => setFocusMode(!document.body.classList.contains('zen'))
 
 // ── recent files ──────────────────────────────────────────────────────────
-interface PermissionHandle extends FileHandleLike {
-  queryPermission?(descriptor: { mode: 'read' }): Promise<PermissionState>
-  requestPermission?(descriptor: { mode: 'read' }): Promise<PermissionState>
-}
-
 let recents: StoredRecent[] = []
 
 async function refreshRecents(): Promise<void> {
@@ -155,15 +151,10 @@ async function remember(tab: TabController, name: string, handle: FileHandleLike
 async function openRecent(stored: StoredRecent): Promise<void> {
   const tab = tabs.find((t) => t.id === stored.entry.tab)
   if (!tab) return
-  const handle = stored.handle as PermissionHandle
-  if (handle.queryPermission && (await handle.queryPermission({ mode: 'read' })) !== 'granted') {
-    const answer = await handle.requestPermission?.({ mode: 'read' })
-    if (answer !== 'granted') {
-      toast('Permission to read the file was denied', true)
-      return
-    }
-  }
-  load(tab, await readFile(await handle.getFile(), handle))
+  const result = await readHandle(stored.handle, true)
+  if (result.status === 'denied') toast('Permission to read the file was denied', true)
+  else if (result.status === 'missing') toast(`${stored.entry.name} was not found on disk (moved or deleted)`, true)
+  else load(tab, result.file)
 }
 
 // ── behaviour ─────────────────────────────────────────────────────────────
@@ -280,11 +271,37 @@ function collectDropped(transfer: DataTransfer): DroppedItem[] {
   })
 }
 
-window.addEventListener('dragover', (ev) => ev.preventDefault())
-window.addEventListener('drop', (ev) => {
-  ev.preventDefault()
-  if (!ev.dataTransfer) return
-  const dropped = collectDropped(ev.dataTransfer)
+const carriesFiles = (ev: DragEvent): boolean => ev.dataTransfer?.types.includes('Files') ?? false
+
+// Capture phase: file drops must reach us before the editors. Otherwise the WYSIWYG editor
+// (ProseMirror + Toast UI) handles them itself — e.g. it embeds a dropped image as a multi-MB
+// base64 data URL and stops propagation, which can hang the page.
+// Text/HTML drags (moving a selection inside an editor) are left alone.
+window.addEventListener(
+  'dragover',
+  (ev) => {
+    ev.preventDefault()
+    if (!carriesFiles(ev)) return
+    ev.stopPropagation()
+    if (ev.dataTransfer) ev.dataTransfer.dropEffect = 'copy'
+  },
+  true,
+)
+window.addEventListener(
+  'drop',
+  (ev) => {
+    if (!carriesFiles(ev) || !ev.dataTransfer) return
+    ev.preventDefault()
+    ev.stopPropagation()
+    openDropped(ev.dataTransfer)
+  },
+  true,
+)
+// Anything else that reaches the window unhandled must not make the browser navigate away.
+window.addEventListener('drop', (ev) => ev.preventDefault())
+
+function openDropped(transfer: DataTransfer): void {
+  const dropped = collectDropped(transfer)
   void guarded(async () => {
     for (const { file, handle } of dropped) {
       const opened = await readFile(file, await handle)
@@ -296,7 +313,7 @@ window.addEventListener('drop', (ev) => {
       load(tab, opened)
     }
   })
-})
+}
 
 window.addEventListener('beforeunload', (ev) => {
   if (tabs.some((tab) => tab.isDirty())) ev.preventDefault()
@@ -304,7 +321,7 @@ window.addEventListener('beforeunload', (ev) => {
 
 // Starter documents: unsaved (no handle), so the first Save asks where to put them.
 for (const [tab, starter] of [[tabs[0], STARTER_MARKDOWN], [tabs[1], STARTER_JSON], [tabs[2], STARTER_HTML]] as const) {
-  tab.open({ name: starter.fileName, text: starter.text, handle: null })
+  tab.open({ name: starter.fileName, text: starter.text, handle: null, sample: true })
 }
 
 applyTheme()

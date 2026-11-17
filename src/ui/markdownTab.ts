@@ -17,14 +17,27 @@ import {
   type Doc,
   type DocSet,
 } from '../lib/docSet'
+import {
+  judgeProbe,
+  loadSession,
+  mergeRestored,
+  saveSession,
+  toSession,
+  type DiskState,
+  type Session,
+} from '../lib/docSession'
 import { buildHtmlDocument } from '../lib/exportHtml'
-import { downloadText } from '../lib/fileAccess'
+import { downloadText, readHandle, statHandle } from '../lib/fileAccess'
 import type { FileHandleLike, FileKind, OpenedFile } from '../lib/fileAccess'
 import { offsetToPos } from '../lib/findReplace'
 import { extractHeadings } from '../lib/outline'
 import {
   FONT_DEFAULT,
+  SPLIT_DEFAULT,
+  SPLIT_MAX,
+  SPLIT_MIN,
   WIDTH_CH,
+  clampSplit,
   cycleWidth,
   isWidthPref,
   stepFontSize,
@@ -40,6 +53,8 @@ import type { TabController } from './types'
 const DRAFT_KEY = 'mdreadar:md-drafts'
 const FONT_KEY = 'mdreadar:read-font'
 const WIDTH_KEY = 'mdreadar:read-width'
+const SPLIT_KEY = 'mdreadar:md-split'
+const SPLIT_KEY_STEP = 2
 const SIDE_EFFECT_DELAY_MS = 400
 const DEFAULT_NAME = 'untitled.md'
 
@@ -73,13 +88,6 @@ const makeDoc = (
   handle: FileHandleLike | null,
   savedText: string = text,
 ): Doc => ({ id: `doc${++docSeq}`, name, text, savedText, handle })
-
-function restoreSet(): DocSet {
-  const drafts = parseDrafts(readStored(DRAFT_KEY))
-  if (drafts.length === 0) return createDocSet(makeDoc(DEFAULT_NAME, STARTER, null))
-  const docs = drafts.map((d) => makeDoc(d.name, d.text, null, ''))
-  return { docs, activeId: docs[0].id }
-}
 
 function printHtml(html: string): void {
   const frame = el('iframe', { 'aria-hidden': 'true', tabindex: '-1' })
@@ -119,6 +127,30 @@ export function createMarkdownTab(): TabController {
   const listeners: Array<() => void> = []
 
   // State is declared before the editor so early change events never hit a TDZ.
+  /** Docs not worth remembering while clean and unlinked (starter, sample, blank new doc). */
+  const ephemeral = new Set<string>()
+  /** Docs restored from the legacy localStorage drafts; superseded by the IndexedDB session. */
+  const legacy = new Set<string>()
+  /** File lastModified when each doc was last read from / written to disk. */
+  const stamps = new Map<string, number>()
+  /** Docs whose file vanished from disk, or changed there since we read it. */
+  const diskState = new Map<string, DiskState>()
+  /** The stored session is written only after it has been read, so startup never clobbers it. */
+  let hydrated = false
+  let checking = false
+
+  function restoreSet(): DocSet {
+    const drafts = parseDrafts(readStored(DRAFT_KEY))
+    if (drafts.length === 0) {
+      const starter = makeDoc(DEFAULT_NAME, STARTER, null)
+      ephemeral.add(starter.id)
+      return createDocSet(starter)
+    }
+    const docs = drafts.map((d) => makeDoc(d.name, d.text, null, ''))
+    docs.forEach((d) => legacy.add(d.id))
+    return { docs, activeId: docs[0].id }
+  }
+
   let set: DocSet = restoreSet()
   let loading = false
   let clean = false
@@ -126,6 +158,7 @@ export function createMarkdownTab(): TabController {
   let fontSize = Number(readStored(FONT_KEY)) || FONT_DEFAULT
   const storedWidth = readStored(WIDTH_KEY)
   let width: WidthPref = isWidthPref(storedWidth) ? storedWidth : 'normal'
+  let split = clampSplit(readStored(SPLIT_KEY))
 
   // ── chrome ──
   const outlineBtn = el('button', { class: 'btn ghost', type: 'button', 'aria-pressed': 'false' }, 'Outline')
@@ -134,9 +167,23 @@ export function createMarkdownTab(): TabController {
   const smallerBtn = el('button', { class: 'btn ghost', type: 'button', 'aria-label': 'Smaller text' }, 'A−')
   const largerBtn = el('button', { class: 'btn ghost', type: 'button', 'aria-label': 'Larger text' }, 'A+')
   const widthBtn = el('button', { class: 'btn ghost', type: 'button', 'aria-label': 'Column width' }, '')
+  const refreshBtn = el('button', { class: 'btn ghost refresh-btn', type: 'button' }, 'Refresh')
+  const diskWarn = el(
+    'span',
+    {
+      class: 'disk-warn',
+      role: 'status',
+      title: 'The file was moved, renamed or deleted. Your text is still here — use Save as to write it to a new file.',
+    },
+    el('span', { class: 'disk-warn-dot', 'aria-hidden': 'true' }),
+    'File not found on disk',
+  )
+  diskWarn.hidden = true
   const bar = el(
     'div',
     { class: 'pane-bar' },
+    refreshBtn,
+    diskWarn,
     outlineBtn,
     findBtn,
     cleanBtn,
@@ -229,19 +276,133 @@ export function createMarkdownTab(): TabController {
     status.textContent = `${stats.words} words · ${stats.chars} chars${minutes}`
   }
 
+  const worthKeeping = (doc: Doc): boolean =>
+    doc.handle !== null || isDocDirty(doc) || !ephemeral.has(doc.id)
+
+  const sessionOf = (): Session | null =>
+    toSession(set.docs.filter(worthKeeping), set.activeId, (id) => stamps.get(id))
+
   function persistDrafts(): void {
+    // localStorage drafts stay as a synchronous fallback for unsaved edits.
     writeStored(DRAFT_KEY, set.docs.some(isDocDirty) ? serializeDrafts(set) : null)
+    if (hydrated) void saveSession(sessionOf())
+  }
+
+  /** Restore the documents that were open last time — text first, links to disk second. */
+  async function hydrate(): Promise<void> {
+    const session = await loadSession()
+    hydrated = true
+    if (!session) {
+      persistDrafts()
+      return
+    }
+    // Keep anything the user opened or typed while the session was loading.
+    const kept = set.docs.filter((d) => !legacy.has(d.id) && worthKeeping(d))
+    const restored = session.docs.map((s) => {
+      const doc = makeDoc(s.name, s.text, s.handle, s.savedText)
+      if (s.stamp !== null) stamps.set(doc.id, s.stamp)
+      return doc
+    })
+    set = mergeRestored(restored, session.activeIndex, kept, set.activeId)
+    loadActive()
+    void checkDisk()
+  }
+
+  /**
+   * Background probe (no permission prompts): flag files that disappeared or were edited
+   * elsewhere. Text in the app is never touched here.
+   */
+  async function checkDisk(): Promise<void> {
+    if (checking) return
+    checking = true
+    try {
+      let changed = false
+      for (const doc of set.docs) {
+        if (!doc.handle) continue
+        const result = await statHandle(doc.handle)
+        if (result === 'unknown') continue
+        const before = diskState.get(doc.id)
+        const { state: next, stamp } = judgeProbe(stamps.get(doc.id), result)
+        if (stamp !== undefined) stamps.set(doc.id, stamp)
+        if (next) diskState.set(doc.id, next)
+        else diskState.delete(doc.id)
+        changed ||= before !== next
+      }
+      if (changed) renderDocTabs()
+    } finally {
+      checking = false
+    }
+  }
+
+  async function refreshFromDisk(): Promise<void> {
+    const doc = activeDoc(set)
+    if (!doc.handle) {
+      toast('This document is not linked to a file on disk', true)
+      return
+    }
+    const result = await readHandle(doc.handle, true)
+    if (result.status === 'denied') {
+      toast('Permission to read the file was denied', true)
+      return
+    }
+    if (result.status === 'missing') {
+      diskState.set(doc.id, 'missing')
+      renderDocTabs()
+      toast(`${doc.name} was not found on disk — your text is kept in the app`, true)
+      return
+    }
+    const current = activeDoc(set)
+    if (current.id !== doc.id) return // user switched documents while we were reading
+    if (isDocDirty(current) && !window.confirm(`Discard unsaved changes to "${current.name}" and reload it from disk?`)) {
+      return
+    }
+    const before = editor.getMarkdown()
+    const { file } = result
+    if (file.lastModified !== undefined) stamps.set(doc.id, file.lastModified)
+    diskState.delete(doc.id)
+    set = replaceDoc(set, doc.id, { ...current, name: file.name, text: file.text, savedText: file.text })
+    loadActive()
+    toast(editor.getMarkdown() === before ? `${file.name} is already up to date` : `Reloaded ${file.name} from disk`)
+  }
+
+  async function restamp(id: string, handle: FileHandleLike | null): Promise<void> {
+    if (!handle) return
+    const result = await statHandle(handle)
+    if (typeof result === 'number') stamps.set(id, result)
+    persistDrafts()
+  }
+
+  function renderDiskStatus(): void {
+    const doc = activeDoc(set)
+    const state = diskState.get(doc.id)
+    diskWarn.hidden = state !== 'missing'
+    refreshBtn.disabled = !doc.handle
+    refreshBtn.classList.toggle('has-update', state === 'changed')
+    refreshBtn.title = !doc.handle
+      ? 'Only documents opened from a file on disk can be refreshed'
+      : state === 'changed'
+        ? 'The file changed on disk — click to reload it'
+        : 'Reload this document from its file on disk'
   }
 
   function renderDocTabs(): void {
+    renderDiskStatus()
     const addBtn = el('button', { class: 'doc-add', type: 'button', 'aria-label': 'New document' }, '+')
     addBtn.addEventListener('click', newDocument)
     docStrip.replaceChildren(
       ...set.docs.map((doc) => {
         const selected = doc.id === set.activeId
+        const missing = diskState.get(doc.id) === 'missing'
         const tab = el(
           'button',
-          { class: 'doc-tab', role: 'tab', type: 'button', 'aria-selected': String(selected), title: doc.name },
+          {
+            class: 'doc-tab',
+            role: 'tab',
+            type: 'button',
+            'aria-selected': String(selected),
+            title: missing ? `${doc.name} — file not found on disk (text kept)` : doc.name,
+          },
+          missing ? el('span', { class: 'disk-warn-dot', 'aria-label': 'File not found on disk' }) : '',
           isDocDirty(doc) ? '● ' : '',
           doc.name,
         )
@@ -298,7 +459,9 @@ export function createMarkdownTab(): TabController {
   }
 
   function newDocument(): void {
-    set = addDoc(set, makeDoc(DEFAULT_NAME, '', null))
+    const doc = makeDoc(DEFAULT_NAME, '', null)
+    ephemeral.add(doc.id)
+    set = addDoc(set, doc)
     loadActive()
     editor.focus()
   }
@@ -307,7 +470,13 @@ export function createMarkdownTab(): TabController {
     const doc = set.docs.find((d) => d.id === id)
     if (!doc) return
     if (isDocDirty(doc) && !window.confirm(`"${doc.name}" has unsaved changes. Close anyway?`)) return
-    set = closeDoc(set, id, () => makeDoc(DEFAULT_NAME, '', null))
+    set = closeDoc(set, id, () => {
+      const fresh = makeDoc(DEFAULT_NAME, '', null)
+      ephemeral.add(fresh.id)
+      return fresh
+    })
+    stamps.delete(id)
+    diskState.delete(id)
     loadActive()
   }
 
@@ -355,6 +524,69 @@ export function createMarkdownTab(): TabController {
     applyPrefs()
   }
 
+  // ── Source view split (markdown | preview) ──
+  // Toast UI renders a 1px splitter between the two halves; we turn it into a drag handle and
+  // drive both widths from --md-split. A small button on the divider restores 50/50.
+  const mdContainer = host.querySelector<HTMLElement>('.toastui-editor-md-container')
+  const splitter = host.querySelector<HTMLElement>('.toastui-editor-md-splitter')
+  const splitReset = el(
+    'button',
+    { class: 'md-split-reset', type: 'button', title: 'Reset to 50 / 50', 'aria-label': 'Reset split to 50 / 50' },
+    '⇔',
+  )
+
+  function setSplit(next: number, persist = true): void {
+    split = clampSplit(next)
+    element.style.setProperty('--md-split', `${split}%`)
+    splitReset.hidden = split === SPLIT_DEFAULT
+    splitter?.setAttribute('aria-valuenow', String(Math.round(split)))
+    if (persist) writeStored(SPLIT_KEY, String(split))
+  }
+
+  function resetSplit(): void {
+    setSplit(SPLIT_DEFAULT)
+  }
+
+  if (mdContainer && splitter) {
+    mdContainer.classList.add('md-split-host')
+    mdContainer.append(splitReset)
+    Object.assign(splitter, { tabIndex: 0 })
+    splitter.setAttribute('role', 'separator')
+    splitter.setAttribute('aria-orientation', 'vertical')
+    splitter.setAttribute('aria-label', 'Resize markdown and preview (double-click to reset)')
+    splitter.setAttribute('aria-valuemin', String(SPLIT_MIN))
+    splitter.setAttribute('aria-valuemax', String(SPLIT_MAX))
+
+    splitter.addEventListener('pointerdown', (ev) => {
+      if (ev.button !== 0) return
+      ev.preventDefault()
+      splitter.setPointerCapture(ev.pointerId)
+      mdContainer.classList.add('md-split-dragging')
+      const rect = mdContainer.getBoundingClientRect()
+      const move = (e: PointerEvent): void => {
+        if (rect.width > 0) setSplit(((e.clientX - rect.left) / rect.width) * 100, false)
+      }
+      const end = (): void => {
+        splitter.removeEventListener('pointermove', move)
+        mdContainer.classList.remove('md-split-dragging')
+        writeStored(SPLIT_KEY, String(split))
+      }
+      splitter.addEventListener('pointermove', move)
+      splitter.addEventListener('pointerup', end, { once: true })
+      splitter.addEventListener('pointercancel', end, { once: true })
+    })
+    splitter.addEventListener('dblclick', resetSplit)
+    splitter.addEventListener('keydown', (ev) => {
+      if (ev.key === 'ArrowLeft') setSplit(split - SPLIT_KEY_STEP)
+      else if (ev.key === 'ArrowRight') setSplit(split + SPLIT_KEY_STEP)
+      else if (ev.key === 'Home' || ev.key === 'Enter') resetSplit()
+      else return
+      ev.preventDefault()
+    })
+    splitReset.addEventListener('click', resetSplit)
+  }
+  setSplit(split, false)
+
   // ── wiring ──
   outlineBtn.addEventListener('click', () => setOutlineVisible(Boolean(outline.hidden)))
   findBtn.addEventListener('click', () => findBar.open(false))
@@ -362,6 +594,17 @@ export function createMarkdownTab(): TabController {
   smallerBtn.addEventListener('click', () => adjustFont(-1))
   largerBtn.addEventListener('click', () => adjustFont(1))
   widthBtn.addEventListener('click', cycleColumnWidth)
+  refreshBtn.addEventListener('click', () => void refreshFromDisk().catch((e) => toast(String(e), true)))
+  // Re-check files when the user comes back from another app (where they may have edited them).
+  window.addEventListener('focus', () => void checkDisk())
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') void checkDisk()
+  })
+  // The debounced save may not have run yet: flush the latest text before the page goes away.
+  window.addEventListener('pagehide', () => {
+    window.clearTimeout(sideTimer)
+    persistDrafts()
+  })
   element.addEventListener(
     'keydown',
     (ev) => {
@@ -378,8 +621,10 @@ export function createMarkdownTab(): TabController {
 
   applyPrefs()
   loadActive()
+  void hydrate()
 
   const commands = (): Command[] => [
+    { id: 'md.refresh', title: 'Markdown: Refresh from disk', run: () => void refreshFromDisk().catch((e) => toast(String(e), true)) },
     { id: 'md.clean', title: 'Markdown: Toggle Read & edit view', run: () => setClean(!clean) },
     { id: 'md.outline', title: 'Markdown: Toggle outline', run: () => setOutlineVisible(Boolean(outline.hidden)) },
     { id: 'md.find', title: 'Markdown: Find', hint: 'Ctrl+F', run: () => findBar.open(false) },
@@ -392,6 +637,7 @@ export function createMarkdownTab(): TabController {
     { id: 'md.bigger', title: 'Markdown: Larger text', run: () => adjustFont(1) },
     { id: 'md.smaller', title: 'Markdown: Smaller text', run: () => adjustFont(-1) },
     { id: 'md.width', title: 'Markdown: Cycle column width', run: cycleColumnWidth },
+    { id: 'md.split-reset', title: 'Markdown: Reset source/preview split', run: resetSplit },
   ]
 
   return {
@@ -408,6 +654,8 @@ export function createMarkdownTab(): TabController {
     },
     open(file: OpenedFile): void {
       const doc = makeDoc(file.name, file.text, file.handle)
+      if (file.sample) ephemeral.add(doc.id)
+      if (file.handle && file.lastModified !== undefined) stamps.set(doc.id, file.lastModified)
       const current = activeDoc(set)
       const replaceable = !current.handle && !isDocDirty(current) && current.name === DEFAULT_NAME
       set = replaceable ? { ...replaceDoc(set, current.id, doc), activeId: doc.id } : addDoc(set, doc)
@@ -421,8 +669,11 @@ export function createMarkdownTab(): TabController {
       const id = activeDoc(set).id
       const text = editor.getMarkdown()
       set = markDocSaved(updateText(set, id, text), id, savedName, savedHandle, text)
+      // Our own write is not an "external change", and a saved file exists on disk again.
+      diskState.delete(id)
       renderDocTabs()
       persistDrafts()
+      void restamp(id, savedHandle)
       notify()
     },
     isDirty: () => set.docs.some(isDocDirty),

@@ -1,6 +1,6 @@
 # QAReadar
 
-เว็บแอปฝั่ง client ล้วน (ไม่มี backend) สำหรับ **แก้ไขไฟล์ Markdown**, **หา path ของค่าใน JSON** และ **หา locator ขององค์ประกอบในหน้า HTML** (Playwright / Robot Framework)
+เว็บแอปฝั่ง client ล้วน (ไม่มี backend) สำหรับ **แก้ไขไฟล์ Markdown**, **หา path ของค่าใน JSON** และ **หา locator ขององค์ประกอบในหน้า HTML** (Playwright / Robot Framework / Cucumber Java / Playwright Java)
 ไฟล์ทั้งหมดอยู่ในเบราว์เซอร์ของคุณ ไม่มีการอัปโหลดไปไหน
 
 ## เริ่มใช้งาน
@@ -27,7 +27,9 @@ Build ใช้ `base: './'` จึงนำ `dist/` ไปวางบน stati
   - Replace ทีละจุดใช้ได้เฉพาะใน Markdown source view
 - **สถิติ**: จำนวนคำ ตัวอักษร และเวลาอ่านโดยประมาณ (นับคำไทยด้วย `Intl.Segmenter`)
 - **Export**: บันทึกเป็น HTML, คัดลอกเป็น HTML, พิมพ์ / บันทึกเป็น PDF (ผ่าน command palette)
-- **Draft อัตโนมัติ**: เก็บเอกสารที่ยังไม่บันทึกไว้ใน localStorage และกู้คืนเมื่อเปิดใหม่
+- **จำเอกสารที่เปิดไว้**: เอกสารที่เปิดค้างไว้ (ข้อความ + การผูกกับไฟล์) ถูกเก็บใน IndexedDB และเปิดกลับมาเหมือนเดิมเมื่อโหลดหน้าใหม่ (draft ที่ยังไม่บันทึกยังสำรองใน localStorage ด้วย)
+- **Refresh**: โหลดไฟล์จากดิสก์ใหม่เมื่อถูกแก้จากโปรแกรมอื่น (มีจุดบนปุ่มเมื่อตรวจพบว่าไฟล์เปลี่ยน และถามก่อนทับการแก้ที่ยังไม่บันทึก)
+- **ไฟล์หาย / ถูกย้าย**: ข้อความในแอปไม่หาย แค่ขึ้นไฟเตือนสีเหลือง "File not found on disk" ใช้ Save as เพื่อบันทึกเป็นไฟล์ใหม่ได้
 
 ### JSON Path
 - **Tree แบบ lazy** ใช้คีย์บอร์ดได้ (ลูกศร, Enter, ←/→) แบ่งหน้าทีละ 200 รายการสำหรับ array ใหญ่
@@ -48,9 +50,9 @@ Build ใช้ `base: './'` จึงนำ `dist/` ไปวางบน stati
 - **Preview แบบ sandbox**: แสดงหน้าใน iframe ที่ไม่รัน script และบล็อกทุก request ภายนอก (CSP, ตัด `<base>`, `meta refresh`, resource hint) หน้าจึงแสดงด้วย inline style เท่านั้น
 - **คลิกได้สองทาง**: คลิกองค์ประกอบใน preview แล้ว source จะเลือก start tag และเลื่อนไปให้ หรือคลิก / เลื่อนเคอร์เซอร์ใน source (ข้อความหรือแท็ก) แล้ว locator ขึ้นทันที
 - **Select parent**: ขยับไปที่ element แม่เมื่อ locator ของตัวที่เลือกยังไม่เจาะจงพอ
-- **เลือกไวยากรณ์ได้**: Playwright (`page.getByRole(...)`, `getByTestId`, `getByLabel` ฯลฯ) และ Robot Framework (SeleniumLibrary เช่น `id:`, `css:`, `xpath:`) จำค่าที่เลือกไว้ให้
+- **เลือกไวยากรณ์ได้**: Playwright (`page.getByRole(...)`, `getByTestId`, `getByLabel` ฯลฯ), Robot Framework (SeleniumLibrary เช่น `id:`, `css:`, `xpath:`), Cucumber Java (Selenium WebDriver เช่น `driver.findElement(By.id("..."))`) และ Playwright Java (`page.getByRole(AriaRole.BUTTON, ...)`, `getByTestId` ฯลฯ) จำค่าที่เลือกไว้ให้
 - **ผู้สมัคร locator เรียงจากแนะนำที่สุด**: test id (`data-testid`, `data-test-id`, `data-test`, `data-qa`, `data-cy`), role + accessible name, label, placeholder, text, alt, title, id, name, link text, CSS (class), CSS path, XPath
-  - Robot Framework ไม่มี role / label จึงข้ามสองแบบนี้
+  - Robot Framework และ Cucumber Java (Selenium) ไม่มี role / label จึงข้ามสองแบบนี้
 - **ป้ายจำนวนที่ตรง**: แต่ละ locator บอกว่าตรงกี่ element ในหน้า (`unique` = ใช้ได้เลย, `N matches` = ต้องจำกัดให้แคบลง)
 - **Copy**: ปุ่ม Copy หรือดับเบิลคลิกที่โค้ด
 - **เพิ่มเครื่องมือใหม่**: เพิ่ม `LocatorFramework` ใน `FRAMEWORKS` ที่ `src/lib/locatorFormats.ts`
@@ -121,7 +123,7 @@ src/
 │   ├── jsonError.ts   # หาตำแหน่ง error ของ JSON
 │   ├── convert.ts     # JSONL / CSV / YAML → JSON
 │   ├── locators.ts    # หา locator candidate ของ element (ไม่ผูกกับเครื่องมือ)
-│   ├── locatorFormats.ts  # แปลง candidate เป็นโค้ด Playwright / Robot Framework + นับ matches
+│   ├── locatorFormats.ts  # แปลง candidate เป็นโค้ด Playwright / Robot Framework / Cucumber Java / Playwright Java + นับ matches
 │   ├── accessibility.ts   # role และ accessible name
 │   ├── domSelectors.ts, matchCount.ts   # CSS / XPath และการนับ element ที่ตรง
 │   ├── previewDoc.ts  # เตรียม HTML สำหรับ iframe sandbox (CSP)
