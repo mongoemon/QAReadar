@@ -25,6 +25,10 @@ export interface FormattedLocator {
 export interface LocatorFramework {
   readonly id: string
   readonly label: string
+  /** Official documentation of the tool's locator syntax. */
+  readonly docsUrl: string
+  /** The basic library usually paired with the locators (assertions, keywords, step definitions). */
+  readonly companion: { readonly label: string; readonly url: string }
   format(candidate: Candidate, doc: Document): FormattedLocator | null
 }
 
@@ -239,10 +243,34 @@ function formatPlaywrightJava(c: Candidate, doc: Document): FormattedLocator | n
 }
 
 export const FRAMEWORKS: readonly LocatorFramework[] = [
-  { id: 'playwright', label: 'Playwright', format: formatPlaywright },
-  { id: 'robot', label: 'Robot Framework', format: formatRobot },
-  { id: 'cucumber-java', label: 'Cucumber Java (Selenium)', format: formatCucumberJava },
-  { id: 'playwright-java', label: 'Playwright Java', format: formatPlaywrightJava },
+  {
+    id: 'playwright',
+    label: 'Playwright',
+    docsUrl: 'https://playwright.dev/docs/locators',
+    companion: { label: 'expect', url: 'https://playwright.dev/docs/test-assertions' },
+    format: formatPlaywright,
+  },
+  {
+    id: 'robot',
+    label: 'Robot Framework',
+    docsUrl: 'https://robotframework.org/SeleniumLibrary/SeleniumLibrary.html#Locating%20elements',
+    companion: { label: 'BuiltIn', url: 'https://robotframework.org/robotframework/latest/libraries/BuiltIn.html' },
+    format: formatRobot,
+  },
+  {
+    id: 'cucumber-java',
+    label: 'Cucumber Java (Selenium)',
+    docsUrl: 'https://www.selenium.dev/documentation/webdriver/elements/locators/',
+    companion: { label: 'Cucumber', url: 'https://cucumber.io/docs/cucumber/step-definitions/?lang=java' },
+    format: formatCucumberJava,
+  },
+  {
+    id: 'playwright-java',
+    label: 'Playwright Java',
+    docsUrl: 'https://playwright.dev/java/docs/locators',
+    companion: { label: 'Assertions', url: 'https://playwright.dev/java/docs/test-assertions' },
+    format: formatPlaywrightJava,
+  },
 ]
 
 export const frameworkById = (id: string): LocatorFramework | undefined =>

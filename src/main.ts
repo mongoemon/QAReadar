@@ -7,7 +7,9 @@ import { makeRecentId } from './lib/recent'
 import { listRecent, saveRecent, type StoredRecent } from './lib/recentStore'
 import { readStored, writeStored } from './lib/safeStorage'
 import { isThemePref, nextTheme, resolveDark, type ThemePref } from './lib/theme'
+import { getLang, localized, nextLang, setLang, t } from './lib/i18n'
 import { el } from './ui/dom'
+import { icon, iconButton, setIconButton, type IconName } from './ui/icons'
 import { createJsonTab } from './ui/jsonTab'
 import { createLocatorTab } from './ui/locatorTab'
 import { createMarkdownTab } from './ui/markdownTab'
@@ -40,25 +42,33 @@ const tabFor = (file: OpenedFile): TabController | undefined =>
   tabById(sniffKind(file.text))
 
 // ── chrome ────────────────────────────────────────────────────────────────
+const TAB_ICONS: Partial<Record<string, IconName>> = { markdown: 'fileText', json: 'braces', locator: 'crosshair' }
 const tabButtons = new Map<TabController, HTMLButtonElement>()
-const tabList = el('div', { class: 'tabs', role: 'tablist', 'aria-label': 'Tools' })
+const tabList = el('div', { class: 'tabs', role: 'tablist' })
 for (const tab of tabs) {
-  const button = el('button', { class: 'tab', role: 'tab', type: 'button' }, tab.label)
+  const label = el('span', {})
+  const button = el('button', { class: 'tab', role: 'tab', type: 'button' }, icon(TAB_ICONS[tab.id] ?? 'fileText'), label)
+  localized(() => {
+    label.textContent = tab.label
+  })
   button.addEventListener('click', () => activate(tab))
   tabButtons.set(tab, button)
   tabList.append(button)
 }
 
 const chipName = el('span', { class: 'chip-name' })
-const chipDot = el('span', { class: 'chip-dot', title: 'Unsaved changes' })
+const chipDot = el('span', { class: 'chip-dot' })
 const chip = el('div', { class: 'chip' }, chipDot, chipName)
 
-const openBtn = el('button', { class: 'btn', type: 'button' }, 'Open')
-const recentBtn = el('button', { class: 'btn ghost', type: 'button' }, 'Recent')
-const saveBtn = el('button', { class: 'btn primary', type: 'button' }, 'Save')
-const saveAsBtn = el('button', { class: 'btn', type: 'button' }, 'Save as')
-const themeBtn = el('button', { class: 'btn ghost', type: 'button', 'aria-label': 'Change theme' }, '')
-const commandBtn = el('button', { class: 'btn ghost', type: 'button', 'aria-label': 'Open command palette' }, 'Ctrl+K')
+const openBtn = iconButton('open', () => t('top.open'), { variant: 'ghost', shortcut: 'Ctrl+O' })
+const recentBtn = iconButton('recent', () => t('top.recent'), { variant: 'ghost' })
+const saveBtn = iconButton('save', () => t('top.save'), { variant: 'primary', text: () => t('top.save'), shortcut: 'Ctrl+S' })
+const saveAsBtn = iconButton('saveAs', () => t('top.saveAs'), { variant: 'ghost', shortcut: 'Ctrl+Shift+S' })
+const themeBtn = iconButton('monitor', '', { variant: 'ghost' })
+const langBtn = iconButton('languages', () => t('top.lang'), { variant: 'ghost lang-btn', text: () => getLang().toUpperCase() })
+const focusBtn = iconButton('focus', () => t('top.focus'), { variant: 'ghost', shortcut: 'Ctrl+.' })
+const commandBtn = iconButton('command', () => t('top.command'), { variant: 'ghost', shortcut: 'Ctrl+K' })
+const THEME_ICONS: Record<ThemePref, IconName> = { auto: 'monitor', light: 'sun', dark: 'moon' }
 
 const REPO_URL = 'https://github.com/mongoemon/QAReadar'
 const GITHUB_ICON_PATH =
@@ -74,30 +84,19 @@ function githubLink(): HTMLAnchorElement {
   const path = document.createElementNS('http://www.w3.org/2000/svg', 'path')
   path.setAttribute('d', GITHUB_ICON_PATH)
   svg.append(path)
-  return el(
-    'a',
-    {
-      class: 'github-link',
-      href: REPO_URL,
-      target: '_blank',
-      rel: 'noopener noreferrer',
-      'aria-label': 'QAReadar on GitHub',
-      title: 'View on GitHub',
-    },
-    svg,
-  )
+  const link = el('a', { class: 'github-link', href: REPO_URL, target: '_blank', rel: 'noopener noreferrer' }, svg)
+  localized(() => {
+    link.setAttribute('aria-label', t('top.githubAria'))
+    link.title = t('top.github')
+  })
+  return link
 }
 
-const versionBadge = el(
-  'button',
-  {
-    class: 'version',
-    type: 'button',
-    title: `Version ${__APP_VERSION__} — hold 3 s for the changelog`,
-    'aria-label': `Version ${__APP_VERSION__}. Press and hold for 3 seconds to show the changelog`,
-  },
-  `v${__APP_VERSION__}`,
-)
+const versionBadge = el('button', { class: 'version', type: 'button' }, `v${__APP_VERSION__}`)
+localized(() => {
+  versionBadge.title = t('version.title', { v: __APP_VERSION__ })
+  versionBadge.setAttribute('aria-label', t('version.aria', { v: __APP_VERSION__ }))
+})
 const changelog = attachChangelog(versionBadge, __APP_VERSION__)
 
 const header = el(
@@ -111,12 +110,12 @@ const header = el(
   ),
   tabList,
   chip,
-  el('div', { class: 'actions' }, openBtn, recentBtn, saveBtn, saveAsBtn, themeBtn, commandBtn, githubLink()),
+  el('div', { class: 'actions' }, openBtn, recentBtn, saveAsBtn, saveBtn, el('span', { class: 'actions-sep', 'aria-hidden': 'true' }), themeBtn, langBtn, focusBtn, commandBtn, githubLink()),
 )
 const main = el('main', { class: 'stage' }, ...tabs.map((tab) => tab.element))
 const toastHost = el('div', { id: 'toast', class: 'toast', role: 'status' })
 toastHost.hidden = true
-const zenExit = el('button', { class: 'btn small zen-exit', type: 'button' }, 'Exit focus mode')
+const zenExit = iconButton('exitFocus', () => t('zen.exit'), { variant: 'ghost zen-exit', shortcut: 'Esc / Ctrl+.' })
 zenExit.hidden = true
 root.append(header, main, toastHost, zenExit)
 
@@ -130,7 +129,7 @@ function applyTheme(): void {
   else document.documentElement.dataset.theme = themePref
   const dark = resolveDark(themePref, systemDark.matches)
   for (const tab of tabs) tab.setDark?.(dark)
-  themeBtn.textContent = `Theme: ${themePref}`
+  setIconButton(themeBtn, THEME_ICONS[themePref], t('top.theme', { theme: t(`theme.${themePref}`) }))
 }
 
 function cycleTheme(): void {
@@ -140,6 +139,14 @@ function cycleTheme(): void {
 }
 
 systemDark.addEventListener('change', applyTheme)
+
+// ── language ──────────────────────────────────────────────────────────────
+const cycleLang = (): void => setLang(nextLang(getLang()))
+localized(() => {
+  tabList.setAttribute('aria-label', t('tabs.aria'))
+  chipDot.title = t('chip.unsaved')
+  setIconButton(themeBtn, THEME_ICONS[themePref], t('top.theme', { theme: t(`theme.${themePref}`) }))
+})
 
 // ── focus mode ────────────────────────────────────────────────────────────
 function setFocusMode(on: boolean): void {
@@ -165,8 +172,8 @@ async function openRecent(stored: StoredRecent): Promise<void> {
   const tab = tabs.find((t) => t.id === stored.entry.tab)
   if (!tab) return
   const result = await readHandle(stored.handle, true)
-  if (result.status === 'denied') toast('Permission to read the file was denied', true)
-  else if (result.status === 'missing') toast(`${stored.entry.name} was not found on disk (moved or deleted)`, true)
+  if (result.status === 'denied') toast(t('msg.readDenied'), true)
+  else if (result.status === 'missing') toast(t('msg.recentMissing', { name: stored.entry.name }), true)
   else load(tab, result.file)
 }
 
@@ -187,7 +194,7 @@ function activate(tab: TabController): void {
 }
 
 function load(tab: TabController, file: OpenedFile): void {
-  if (!tab.multiDoc && tab.isDirty() && !window.confirm('This tab has unsaved changes. Replace them?')) return
+  if (!tab.multiDoc && tab.isDirty() && !window.confirm(t('confirm.replaceTab'))) return
   tab.open(file)
   activate(tab)
   void remember(tab, file.name, file.handle)
@@ -207,7 +214,7 @@ const openFile = (): Promise<void> =>
     if (!file) return
     const tab = tabFor(file)
     if (tab) load(tab, file)
-    else toast(`Unsupported file type: ${file.name}`, true)
+    else toast(t('msg.unsupported', { name: file.name }), true)
   })
 
 const save = (forceNew: boolean): Promise<void> =>
@@ -215,25 +222,26 @@ const save = (forceNew: boolean): Promise<void> =>
     const saved = await saveTextFile(active.snapshot(), active.kind, forceNew)
     if (!saved) return
     active.markSaved(saved.name, saved.handle)
-    toast(`Saved ${saved.name}`)
+    toast(t('msg.saved', { name: saved.name }))
     void remember(active, saved.name, saved.handle)
   })
 
 const palette = createPalette((): Command[] => [
-  { id: 'file.open', title: 'File: Open…', hint: 'Ctrl+O', run: () => void openFile() },
-  { id: 'file.save', title: 'File: Save', hint: 'Ctrl+S', run: () => void save(false) },
-  { id: 'file.saveas', title: 'File: Save as…', hint: 'Ctrl+Shift+S', run: () => void save(true) },
+  { id: 'file.open', title: t('cmd.open'), hint: 'Ctrl+O', run: () => void openFile() },
+  { id: 'file.save', title: t('cmd.save'), hint: 'Ctrl+S', run: () => void save(false) },
+  { id: 'file.saveas', title: t('cmd.saveAs'), hint: 'Ctrl+Shift+S', run: () => void save(true) },
   ...tabs.map((tab): Command => ({
     id: `tab.${tab.id}`,
-    title: `Go to tab: ${tab.label}`,
+    title: t('cmd.goTab', { tab: tab.label }),
     run: () => activate(tab),
   })),
-  { id: 'view.theme', title: 'View: Change theme (auto / light / dark)', run: cycleTheme },
-  { id: 'view.focus', title: 'View: Toggle focus mode', run: toggleFocusMode },
-  { id: 'help.changelog', title: `Help: Changelog (v${__APP_VERSION__})`, run: changelog.open },
+  { id: 'view.theme', title: t('cmd.theme'), run: cycleTheme },
+  { id: 'view.focus', title: t('cmd.focus'), hint: 'Ctrl+.', run: toggleFocusMode },
+  { id: 'view.lang', title: t('cmd.lang'), run: cycleLang },
+  { id: 'help.changelog', title: t('cmd.changelog', { v: __APP_VERSION__ }), run: changelog.open },
   ...recents.map((stored): Command => ({
     id: `recent.${stored.entry.id}`,
-    title: `Recent: ${stored.entry.name}`,
+    title: t('cmd.recent', { name: stored.entry.name }),
     run: () => void guarded(() => openRecent(stored)),
   })),
   ...(active.commands?.() ?? []),
@@ -241,10 +249,12 @@ const palette = createPalette((): Command[] => [
 
 for (const tab of tabs) tab.onChange(() => tab === active && refreshChip())
 openBtn.addEventListener('click', openFile)
-recentBtn.addEventListener('click', () => palette.open('Recent'))
+recentBtn.addEventListener('click', () => palette.open(t('palette.recentQuery')))
 saveBtn.addEventListener('click', () => save(false))
 saveAsBtn.addEventListener('click', () => save(true))
 themeBtn.addEventListener('click', cycleTheme)
+langBtn.addEventListener('click', cycleLang)
+focusBtn.addEventListener('click', () => setFocusMode(true))
 commandBtn.addEventListener('click', () => palette.open())
 zenExit.addEventListener('click', () => setFocusMode(false))
 
@@ -261,6 +271,9 @@ window.addEventListener('keydown', (ev) => {
   } else if (key === 'o') {
     ev.preventDefault()
     void openFile()
+  } else if (ev.key === '.' || ev.code === 'Period') {
+    ev.preventDefault()
+    toggleFocusMode()
   } else if (key === 'k') {
     ev.preventDefault()
     palette.open()
@@ -321,7 +334,7 @@ function openDropped(transfer: DataTransfer): void {
       const opened = await readFile(file, await handle)
       const tab = tabFor(opened)
       if (!tab) {
-        toast(`Unsupported file type: ${file.name}`, true)
+        toast(t('msg.unsupported', { name: file.name }), true)
         continue
       }
       load(tab, opened)

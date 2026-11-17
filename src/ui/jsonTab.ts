@@ -22,6 +22,8 @@ import { queryJsonPath } from '../lib/jsonQuery'
 import { searchNodes, type SearchScope } from '../lib/jsonSearch'
 import { copyText } from './clipboard'
 import { el } from './dom'
+import { localized, t, type MessageKey } from '../lib/i18n'
+import { iconButton } from './icons'
 import { renderTree } from './jsonTree'
 import { toast } from './toast'
 import type { TabController } from './types'
@@ -44,12 +46,18 @@ const STYLES: ReadonlyArray<{ style: PathStyle; label: string }> = [
   { style: 'lodash', label: 'Lodash' },
 ]
 
-const DEPTHS: ReadonlyArray<{ value: string; label: string }> = [
-  { value: '0', label: 'Collapsed' },
-  { value: '1', label: 'Depth 1' },
-  { value: '2', label: 'Depth 2' },
-  { value: '3', label: 'Depth 3' },
-  { value: '99', label: 'Expand all' },
+const DEPTHS: ReadonlyArray<{ value: string; label: () => string }> = [
+  { value: '0', label: () => t('json.depthCollapsed') },
+  { value: '1', label: () => t('json.depthN', { n: 1 }) },
+  { value: '2', label: () => t('json.depthN', { n: 2 }) },
+  { value: '3', label: () => t('json.depthN', { n: 3 }) },
+  { value: '99', label: () => t('json.depthAll') },
+]
+
+const SCOPES: ReadonlyArray<{ value: SearchScope; key: MessageKey }> = [
+  { value: 'all', key: 'json.scopeAll' },
+  { value: 'key', key: 'json.scopeKey' },
+  { value: 'value', key: 'json.scopeValue' },
 ]
 
 const IMPORTS: ReadonlyArray<{ format: ConvertFormat; label: string }> = [
@@ -71,48 +79,39 @@ function option(value: string, label: string): HTMLOptionElement {
 export function createJsonTab(): TabController {
   const listeners: Array<() => void> = []
 
-  const input = el('textarea', {
-    class: 'json-input',
-    spellcheck: 'false',
-    'aria-label': 'JSON input',
-    placeholder: 'Paste JSON here, or open a .json / .jsonl / .csv / .yaml file…',
-  })
-  const status = el('p', { class: 'json-status', role: 'status' }, 'Waiting for JSON…')
-  const gotoError = el('button', { class: 'btn small', type: 'button' }, 'Go to error')
+  const input = el('textarea', { class: 'json-input', spellcheck: 'false' })
+  const status = el('p', { class: 'json-status', role: 'status' })
+  const gotoError = iconButton('alert', () => t('json.gotoErrorTip'), { variant: 'small', text: () => t('json.gotoError') })
   gotoError.hidden = true
-  const formatBtn = el('button', { class: 'btn ghost', type: 'button' }, 'Format')
-  const minifyBtn = el('button', { class: 'btn ghost', type: 'button' }, 'Minify')
-  const importSelect = el('select', { class: 'json-select', 'aria-label': 'Convert the text to JSON from…' })
-  importSelect.append(option('', 'Convert from…'), ...IMPORTS.map((i) => option(i.format, i.label)))
+  const formatBtn = iconButton('braces', () => t('json.formatTip'), { variant: 'ghost', text: () => t('json.format') })
+  const minifyBtn = iconButton('minify', () => t('json.minify'), { variant: 'ghost', text: () => t('json.minify') })
+  const importPrompt = option('', '')
+  const importSelect = el('select', { class: 'json-select' })
+  importSelect.append(importPrompt, ...IMPORTS.map((i) => option(i.format, i.label)))
 
-  const search = el('input', {
-    class: 'json-search',
-    type: 'search',
-    placeholder: 'Search, or type a JSONPath like $.users[*].name',
-    'aria-label': 'Search in JSON or run a JSONPath',
-  })
-  const scopeSelect = el('select', { class: 'json-select', 'aria-label': 'Search scope' })
-  scopeSelect.append(option('all', 'Keys + values'), option('key', 'Keys'), option('value', 'Values'))
-  const regexBox = el('input', { type: 'checkbox', 'aria-label': 'Regular expression' })
-  const depthSelect = el('select', { class: 'json-select', 'aria-label': 'Tree depth' })
-  depthSelect.append(...DEPTHS.map((d) => option(d.value, d.label)))
+  const search = el('input', { class: 'json-search', type: 'search' })
+  const scopeOptions = SCOPES.map((scope) => option(scope.value, ''))
+  const scopeSelect = el('select', { class: 'json-select' }, ...scopeOptions)
+  const regexBox = el('input', { type: 'checkbox' })
+  const depthOptions = DEPTHS.map((d) => option(d.value, ''))
+  const depthSelect = el('select', { class: 'json-select' }, ...depthOptions)
   depthSelect.value = '1'
   const view = el('div', { class: 'json-view' })
-  const meta = el('p', { class: 'path-meta' }, 'No selection')
+  const meta = el('p', { class: 'path-meta' })
 
   const codes = new Map<PathStyle, HTMLElement>()
   const pathRows = STYLES.map(({ style, label }) => {
     const code = el('code', { class: 'path-code' }, '—')
     codes.set(style, code)
-    const copy = el('button', { class: 'btn small', type: 'button' }, 'Copy')
+    const copy = iconButton('copy', () => t('json.copyPath', { label }), { variant: 'small ghost' })
     copy.addEventListener('click', async () => {
       const ok = await copyText(code.textContent ?? '')
-      toast(ok ? `Copied ${label} path` : 'Clipboard unavailable — select the path and copy manually', !ok)
+      toast(ok ? t('json.copiedPath', { label }) : t('json.clipboardPath'), !ok)
     })
     code.addEventListener('dblclick', () => copy.click())
     return el('div', { class: 'path-row' }, el('span', { class: 'path-label' }, label), code, copy)
   })
-  const copyValueBtn = el('button', { class: 'btn small', type: 'button' }, 'Copy value')
+  const copyValueBtn = iconButton('copy', () => t('json.copyValueTip'), { variant: 'small', text: () => t('json.copyValue') })
   const pathBox = el('div', { class: 'pathbox' }, el('div', { class: 'path-head' }, meta, copyValueBtn), ...pathRows)
 
   const left = el(
@@ -158,7 +157,7 @@ export function createJsonTab(): TabController {
     for (const code of codes.values()) code.textContent = '—'
     hasSelection = false
     selectedValue = undefined
-    meta.textContent = 'No selection'
+    meta.textContent = t('json.noSelection')
   }
 
   function renderRows(rows: readonly Row[], summary: string): void {
@@ -173,7 +172,7 @@ export function createJsonTab(): TabController {
       item.addEventListener('click', () => showSelection(row.segments, row.value))
       list.append(item)
     }
-    const count = rows.length > MAX_RESULTS ? `${rows.length} matches (showing ${MAX_RESULTS})` : `${rows.length} matches`
+    const count = rows.length > MAX_RESULTS ? t('json.matchesMore', { n: rows.length, max: MAX_RESULTS }) : t('json.matches', { n: rows.length })
     view.replaceChildren(el('p', { class: 'results-count' }, summary || count), list)
   }
 
@@ -189,14 +188,15 @@ export function createJsonTab(): TabController {
         segments: hit.segments,
         value: hit.value,
       }))
-      const more = result.truncated ? ' (truncated)' : ''
-      renderRows(rows, `${result.hits.length} JSONPath result${result.hits.length === 1 ? '' : 's'}${more}`)
+      const more = result.truncated ? t('json.truncated') : ''
+      const n = result.hits.length
+      renderRows(rows, t(n === 1 ? 'json.pathResult' : 'json.pathResults', { n }) + more)
       return
     }
     flat ??= flattenJson(current)
     const result = searchNodes(flat, query, { regex: regexBox.checked, scope: scopeSelect.value as SearchScope })
     if (!result.ok) {
-      view.replaceChildren(el('p', { class: 'results-count error' }, `Pattern: ${result.error}`))
+      view.replaceChildren(el('p', { class: 'results-count error' }, t('json.pattern', { e: result.error })))
       return
     }
     renderRows(
@@ -210,7 +210,7 @@ export function createJsonTab(): TabController {
     if (requested < 99) return requested
     flat ??= flattenJson(current)
     if (flat.length <= BIG_DOCUMENT_NODES) return requested
-    toast(`Large document (${flat.length} nodes) — expanded to depth ${FALLBACK_DEPTH}`)
+    toast(t('json.large', { n: flat.length, d: FALLBACK_DEPTH }))
     return FALLBACK_DEPTH
   }
 
@@ -230,9 +230,13 @@ export function createJsonTab(): TabController {
     )
   }
 
-  function setStatus(kind: 'idle' | 'ok' | 'error', text: string): void {
+  // Kept as a function so the status line can be re-rendered in a new language.
+  let statusText: () => string = () => t('json.waiting')
+
+  function setStatus(kind: 'idle' | 'ok' | 'error', text: () => string): void {
     status.dataset.kind = kind
-    status.textContent = text
+    statusText = text
+    status.textContent = text()
     if (kind !== 'error') {
       gotoError.hidden = true
       errorOffset = -1
@@ -246,7 +250,7 @@ export function createJsonTab(): TabController {
       current = undefined
       flat = null
       view.classList.remove('stale')
-      setStatus('idle', 'Waiting for JSON…')
+      setStatus('idle', () => t('json.waiting'))
       renderView()
       return
     }
@@ -254,8 +258,8 @@ export function createJsonTab(): TabController {
     if (!result.ok) {
       view.classList.add('stale')
       const where = locateJsonError(text, result.error)
-      const suffix = where ? ` (line ${where.line}, col ${where.col})` : ''
-      setStatus('error', `Invalid JSON — ${result.error}${suffix}`)
+      const error = result.error
+      setStatus('error', () => t('json.invalid', { e: error }) + (where ? t('json.where', { line: where.line, col: where.col }) : ''))
       errorOffset = where?.offset ?? -1
       gotoError.hidden = where === null
       return
@@ -264,7 +268,7 @@ export function createJsonTab(): TabController {
     hasValue = true
     flat = null
     view.classList.remove('stale')
-    setStatus('ok', 'Valid JSON')
+    setStatus('ok', () => t('json.valid'))
     renderView()
   }
 
@@ -282,13 +286,13 @@ export function createJsonTab(): TabController {
 
   function format(indent: number | undefined): void {
     if (hasValue) rewrite(JSON.stringify(current, null, indent))
-    else toast('Fix the JSON first — it does not parse yet', true)
+    else toast(t('json.fixFirst'), true)
   }
 
   function convertText(format: ConvertFormat, text: string): boolean {
     const result = convertToJson(format, text)
     if (!result.ok) {
-      toast(`Cannot convert: ${result.error}`, true)
+      toast(t('json.cannotConvert', { e: result.error }), true)
       return false
     }
     rewrite(JSON.stringify(result.value, null, 2))
@@ -297,12 +301,12 @@ export function createJsonTab(): TabController {
 
   async function copySelectedValue(): Promise<void> {
     if (!hasSelection) {
-      toast('Select a node first', true)
+      toast(t('json.selectFirst'), true)
       return
     }
     const text = typeof selectedValue === 'string' ? selectedValue : JSON.stringify(selectedValue, null, 2)
     const ok = await copyText(text)
-    toast(ok ? 'Copied value' : 'Clipboard unavailable', !ok)
+    toast(ok ? t('json.copiedValue') : t('msg.clipboard'), !ok)
   }
 
   function selectAtCursor(): void {
@@ -336,21 +340,40 @@ export function createJsonTab(): TabController {
     if (chosen !== '') convertText(chosen, input.value)
   })
 
+  localized(() => {
+    input.setAttribute('aria-label', t('json.inputAria'))
+    input.placeholder = t('json.placeholder')
+    importSelect.setAttribute('aria-label', t('json.convertAria'))
+    importPrompt.textContent = t('json.convertFrom')
+    search.placeholder = t('json.searchPlaceholder')
+    search.setAttribute('aria-label', t('json.searchAria'))
+    scopeSelect.setAttribute('aria-label', t('json.scopeAria'))
+    SCOPES.forEach((scope, i) => (scopeOptions[i].textContent = t(scope.key)))
+    regexBox.setAttribute('aria-label', t('json.regexAria'))
+    depthSelect.setAttribute('aria-label', t('json.depthAria'))
+    DEPTHS.forEach((d, i) => (depthOptions[i].textContent = d.label()))
+    status.textContent = statusText()
+    if (!hasSelection) meta.textContent = t('json.noSelection')
+    if (hasValue && search.value.trim()) renderView()
+  })
+
   const commands = (): Command[] => [
-    { id: 'json.format', title: 'JSON: Format', run: () => format(2) },
-    { id: 'json.minify', title: 'JSON: Minify', run: () => format(undefined) },
-    { id: 'json.copyvalue', title: 'JSON: Copy selected value', run: () => void copySelectedValue() },
-    { id: 'json.search', title: 'JSON: Focus search / JSONPath', run: () => search.focus() },
+    { id: 'json.format', title: t('json.cmd.format'), run: () => format(2) },
+    { id: 'json.minify', title: t('json.cmd.minify'), run: () => format(undefined) },
+    { id: 'json.copyvalue', title: t('json.cmd.copyValue'), run: () => void copySelectedValue() },
+    { id: 'json.search', title: t('json.cmd.search'), run: () => search.focus() },
     ...IMPORTS.map((i): Command => ({
       id: `json.import.${i.format}`,
-      title: `JSON: Convert text from ${i.label}`,
+      title: t('json.cmd.convert', { f: i.label }),
       run: () => void convertText(i.format, input.value),
     })),
   ]
 
   return {
     id: 'json',
-    label: 'JSON Path',
+    get label() {
+      return t('tab.json')
+    },
     kind: KIND,
     extraExtensions: CONVERTIBLE_EXTENSIONS,
     element,
@@ -371,7 +394,7 @@ export function createJsonTab(): TabController {
       name = `${file.name.replace(/\.[^.]+$/, '')}.json`
       handle = null
       savedText = ''
-      if (convertText(source, file.text)) toast(`Converted ${file.name} to JSON`)
+      if (convertText(source, file.text)) toast(t('json.converted', { name: file.name }))
       else {
         input.value = file.text
         reparse()

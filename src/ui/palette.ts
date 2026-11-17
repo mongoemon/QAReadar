@@ -1,4 +1,5 @@
 import { filterCommands, type Command } from '../lib/commands'
+import { localized, t } from '../lib/i18n'
 import { el } from './dom'
 
 export interface Palette {
@@ -13,14 +14,17 @@ export function createPalette(getCommands: () => Command[]): Palette {
     role: 'combobox',
     'aria-expanded': 'true',
     'aria-controls': 'palette-list',
-    'aria-label': 'Command',
-    placeholder: 'Type a command…',
     autocomplete: 'off',
   })
   const list = el('ul', { class: 'palette-list', id: 'palette-list', role: 'listbox' })
-  const box = el('div', { class: 'palette-box', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Command palette' }, input, list)
+  const box = el('div', { class: 'palette-box', role: 'dialog', 'aria-modal': 'true' }, input, list)
   const backdrop = el('div', { class: 'palette-backdrop' }, box)
   backdrop.hidden = true
+  localized(() => {
+    input.setAttribute('aria-label', t('palette.input'))
+    input.placeholder = t('palette.placeholder')
+    box.setAttribute('aria-label', t('palette.aria'))
+  })
   document.body.append(backdrop)
 
   let shown: Command[] = []
@@ -31,7 +35,7 @@ export function createPalette(getCommands: () => Command[]): Palette {
     shown = filterCommands(getCommands(), input.value)
     selected = Math.min(selected, Math.max(0, shown.length - 1))
     if (shown.length === 0) {
-      list.replaceChildren(el('li', { class: 'palette-empty' }, 'No matching command'))
+      list.replaceChildren(el('li', { class: 'palette-empty' }, t('palette.empty')))
       return
     }
     list.replaceChildren(
@@ -54,6 +58,11 @@ export function createPalette(getCommands: () => Command[]): Palette {
 
   function close(): void {
     backdrop.hidden = true
+  localized(() => {
+    input.setAttribute('aria-label', t('palette.input'))
+    input.placeholder = t('palette.placeholder')
+    box.setAttribute('aria-label', t('palette.aria'))
+  })
     returnFocus?.focus()
     returnFocus = null
   }

@@ -1,12 +1,14 @@
 import { CHANGELOG, type Release } from '../lib/changelog'
+import { localized, t, type MessageKey } from '../lib/i18n'
 import { el } from './dom'
+import { iconButton } from './icons'
 
 export const HOLD_MS = 3000
 
-const SECTIONS: ReadonlyArray<readonly [keyof Pick<Release, 'added' | 'changed' | 'fixed'>, string]> = [
-  ['added', 'เพิ่ม'],
-  ['changed', 'เปลี่ยน'],
-  ['fixed', 'แก้'],
+const SECTIONS: ReadonlyArray<readonly [keyof Pick<Release, 'added' | 'changed' | 'fixed'>, MessageKey]> = [
+  ['added', 'cl.added'],
+  ['changed', 'cl.changed'],
+  ['fixed', 'cl.fixed'],
 ]
 
 function renderRelease(release: Release, current: string): HTMLElement {
@@ -16,24 +18,25 @@ function renderRelease(release: Release, current: string): HTMLElement {
     `v${release.version}`,
     el('span', { class: 'cl-date' }, release.date),
   )
-  if (release.version === current) heading.append(el('span', { class: 'cl-current' }, 'current'))
+  if (release.version === current) heading.append(el('span', { class: 'cl-current' }, t('cl.current')))
   const body = SECTIONS.flatMap(([key, label]) => {
     const items = release[key]
     if (!items?.length) return []
-    return [el('h4', { class: 'cl-kind' }, label), el('ul', { class: 'cl-list' }, ...items.map((t) => el('li', {}, t)))]
+    return [el('h4', { class: 'cl-kind' }, t(label)), el('ul', { class: 'cl-list' }, ...items.map((t) => el('li', {}, t)))]
   })
   return el('section', { class: 'cl-release' }, heading, ...body)
 }
 
 /** Native <dialog>: focus trapping, Esc to close and the backdrop come for free. */
 function createDialog(current: string): HTMLDialogElement {
-  const close = el('button', { class: 'btn ghost cl-close', type: 'button', 'aria-label': 'Close changelog' }, '×')
-  const dialog = el(
-    'dialog',
-    { class: 'changelog', 'aria-labelledby': 'cl-title' },
-    el('header', { class: 'cl-head' }, el('h2', { id: 'cl-title' }, 'Changelog'), close),
-    el('div', { class: 'cl-body' }, ...CHANGELOG.map((r) => renderRelease(r, current))),
-  )
+  const close = iconButton('close', () => t('cl.close'), { variant: 'ghost cl-close', shortcut: 'Esc' })
+  const title = el('h2', { id: 'cl-title' })
+  const body = el('div', { class: 'cl-body' })
+  const dialog = el('dialog', { class: 'changelog', 'aria-labelledby': 'cl-title' }, el('header', { class: 'cl-head' }, title, close), body)
+  localized(() => {
+    title.textContent = t('cl.title')
+    body.replaceChildren(...CHANGELOG.map((r) => renderRelease(r, current)))
+  })
   close.addEventListener('click', () => dialog.close())
   // Click on the backdrop (outside the box) closes.
   dialog.addEventListener('click', (ev) => {

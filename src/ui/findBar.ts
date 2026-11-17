@@ -6,7 +6,9 @@ import {
   type FindOptions,
   type Match,
 } from '../lib/findReplace'
+import { localized, t } from '../lib/i18n'
 import { el } from './dom'
+import { iconButton } from './icons'
 
 export interface FindHost {
   getText(): string
@@ -30,18 +32,24 @@ function checkbox(label: string): { box: HTMLInputElement; node: HTMLElement } {
 }
 
 export function createFindBar(host: FindHost): FindBar {
-  const findInput = el('input', { class: 'find-input', type: 'search', 'aria-label': 'Find', placeholder: 'Find…' })
-  const replaceInput = el('input', { class: 'find-input', type: 'text', 'aria-label': 'Replace with', placeholder: 'Replace with…' })
+  const findInput = el('input', { class: 'find-input', type: 'search' })
+  const replaceInput = el('input', { class: 'find-input', type: 'text' })
   const status = el('span', { class: 'find-status', role: 'status' })
-  const prev = el('button', { class: 'btn small', type: 'button', 'aria-label': 'Previous match' }, '↑')
-  const next = el('button', { class: 'btn small', type: 'button', 'aria-label': 'Next match' }, '↓')
-  const replaceOne = el('button', { class: 'btn small', type: 'button' }, 'Replace')
-  const replaceEvery = el('button', { class: 'btn small', type: 'button' }, 'Replace all')
-  const closeBtn = el('button', { class: 'btn small ghost', type: 'button', 'aria-label': 'Close find' }, '✕')
+  const prev = iconButton('chevronUp', () => t('find.prev'), { variant: 'small ghost', shortcut: 'Shift+Enter' })
+  const next = iconButton('chevronDown', () => t('find.next'), { variant: 'small ghost', shortcut: 'Enter' })
+  const replaceOne = iconButton('replace', () => t('find.replaceOneTip'), { variant: 'small', text: () => t('find.replaceOne') })
+  const replaceEvery = iconButton('replaceAll', () => t('find.replaceAllTip'), { variant: 'small', text: () => t('find.replaceAll') })
+  const closeBtn = iconButton('close', () => t('find.close'), { variant: 'small ghost', shortcut: 'Esc' })
   const caseOpt = checkbox('Aa')
   const regexOpt = checkbox('.*')
-  caseOpt.box.title = 'Match case'
-  regexOpt.box.title = 'Regular expression'
+  localized(() => {
+    findInput.setAttribute('aria-label', t('find.aria'))
+    findInput.placeholder = t('find.placeholder')
+    replaceInput.setAttribute('aria-label', t('find.replaceAria'))
+    replaceInput.placeholder = t('find.replacePlaceholder')
+    caseOpt.box.title = t('find.case')
+    regexOpt.box.title = t('find.regex')
+  })
 
   const replaceRow = el('div', { class: 'find-row' }, replaceInput, replaceOne, replaceEvery)
   const element = el(
@@ -72,14 +80,14 @@ export function createFindBar(host: FindHost): FindBar {
     }
     if (!host.canSelect()) {
       const found = host.findInView(findInput.value, options(), direction === -1)
-      status.textContent = found ? '' : 'No matches'
+      status.textContent = found ? '' : t('find.none')
       return
     }
     const list = matches()
     if (list === null) return
     if (list.length === 0) {
       current = -1
-      status.textContent = 'No matches'
+      status.textContent = t('find.none')
       return
     }
     current = (current + direction + list.length) % list.length
@@ -89,7 +97,7 @@ export function createFindBar(host: FindHost): FindBar {
 
   function doReplaceOne(): void {
     if (!host.canSelect()) {
-      status.textContent = 'Switch to the Markdown source view to replace one at a time'
+      status.textContent = t('find.sourceOnly')
       return
     }
     const list = matches()
@@ -106,7 +114,7 @@ export function createFindBar(host: FindHost): FindBar {
   function doReplaceAll(): void {
     const result = replaceAll(host.getText(), findInput.value, replaceInput.value, options())
     if (result.count > 0) host.setText(result.text)
-    status.textContent = result.count > 0 ? `Replaced ${result.count}` : 'No matches'
+    status.textContent = result.count > 0 ? t('find.replaced', { n: result.count }) : t('find.none')
     current = -1
   }
 

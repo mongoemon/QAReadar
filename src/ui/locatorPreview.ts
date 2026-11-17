@@ -1,5 +1,6 @@
 import { prepareForPreview } from '../lib/previewDoc'
 import { MARKER_ATTR } from '../lib/sourceMap'
+import { localized, t } from '../lib/i18n'
 import { el } from './dom'
 
 /**
@@ -49,7 +50,10 @@ const elementTarget = (ev: Event, doc: Document): Element | null => {
 }
 
 export function createPreview(onPick: (target: Element) => void): Preview {
-  const frame = el('iframe', { class: 'loc-frame', sandbox: 'allow-same-origin', title: 'Page preview' })
+  const frame = el('iframe', { class: 'loc-frame', sandbox: 'allow-same-origin' })
+  localized(() => {
+    frame.title = t('loc.previewTitle')
+  })
   const hoverBox = el('div', { class: 'loc-box hover' })
   const pickedBox = el('div', { class: 'loc-box picked' })
   hoverBox.hidden = true

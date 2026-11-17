@@ -130,6 +130,19 @@ body {
 }
 .github-link:hover { color: var(--ink); background: var(--line); }
 .github-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.docs-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px;
+  border-radius: 4px;
+  color: var(--ink-soft);
+  font-size: 12px;
+  text-decoration: none;
+  transition: color 150ms, background-color 150ms;
+}
+.docs-link:hover { color: var(--ink); background: var(--line); }
+.docs-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .brand::before {
   content: '';
   display: inline-block;
@@ -182,6 +195,31 @@ body {
 .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
 .btn.ghost { background: none; }
 .btn.small { padding: 2px 10px; font-size: 12px; }
+
+/* icon buttons */
+.icon { display: block; flex: none; }
+.btn.with-icon, .btn.icon-only { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+.btn.icon-only { width: 32px; height: 32px; padding: 0; border-radius: 6px; }
+.btn.icon-only.small { width: 26px; height: 26px; }
+.btn.icon-only.small .icon { width: 14px; height: 14px; }
+.btn.with-icon { border-radius: 6px; padding: 5px 12px 5px 10px; }
+.btn.with-icon.small { padding: 2px 8px 2px 6px; }
+.btn.with-icon.small .icon { width: 13px; height: 13px; }
+.btn.ghost { border-color: transparent; color: var(--ink-soft); transition: color 0.15s, background-color 0.15s, transform 0.12s; }
+.btn.ghost:hover { border-color: transparent; color: var(--ink); background: color-mix(in srgb, var(--ink) 9%, transparent); }
+.btn.ghost[aria-pressed='true'] { color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.btn.primary:hover { filter: brightness(1.08); }
+.btn:disabled { cursor: default; }
+.btn-group { display: inline-flex; gap: 2px; }
+.actions { align-items: center; }
+.lang-btn .btn-label { font: 600 11px/1 var(--mono); letter-spacing: 0.04em; }
+.btn.lang-btn { padding: 5px 8px 5px 7px; gap: 4px; }
+.actions-sep { width: 1px; height: 20px; margin-inline: 4px; background: var(--line); }
+.tab { display: inline-flex; align-items: center; gap: 6px; }
+.tab .icon { opacity: 0.7; }
+.tab[aria-selected='true'] .icon { opacity: 1; color: var(--accent); }
+.doc-add, .doc-close { display: inline-flex; align-items: center; justify-content: center; border-radius: 4px; }
+.doc-add:hover, .doc-close:hover { background: color-mix(in srgb, var(--ink) 9%, transparent); }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 /* ── panes ── */
@@ -325,7 +363,7 @@ body {
 .doc-item.active .doc-tab { color: var(--ink); font-weight: 600; }
 .doc-close { padding: 4px 6px; }
 .doc-close:hover { color: var(--err); }
-.doc-add { padding: 4px 10px; font-size: 16px; }
+.doc-add { padding: 5px 8px; margin-left: 2px; }
 
 /* ── file-on-disk status ── */
 .disk-warn-dot {
@@ -341,7 +379,7 @@ body {
 .disk-warn { display: inline-flex; align-items: center; color: var(--amber); font-size: 12px; cursor: help; }
 .refresh-btn { position: relative; }
 .refresh-btn:disabled { opacity: 0.45; cursor: default; }
-.refresh-btn:disabled:hover { border-color: var(--line); }
+.refresh-btn:disabled:hover { border-color: transparent; background: none; color: var(--ink-soft); }
 .refresh-btn.has-update::after {
   content: '';
   position: absolute;
@@ -428,9 +466,13 @@ body {
 .palette-empty { padding: 10px; color: var(--ink-soft); }
 
 /* ── focus mode ── */
-.zen .topbar { display: none; }
+/* Hide-UI (focus) mode: only the content stays. */
+.zen .topbar,
+.zen .pane-bar,
+.zen .doc-tabs,
+.zen .md-status { display: none; }
 .zen #app { grid-template-rows: 1fr; }
-.zen-exit { position: fixed; top: 8px; right: 12px; z-index: 20; opacity: 0.55; }
+.zen-exit { position: fixed; top: 8px; right: 12px; z-index: 20; opacity: 0.25; background: var(--surface); }
 .zen-exit:hover, .zen-exit:focus-visible { opacity: 1; }
 
 /* ── toast ── */

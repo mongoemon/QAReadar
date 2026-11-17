@@ -5,6 +5,8 @@ import { readStored, writeStored } from '../lib/safeStorage'
 import { MARKER_ATTR, annotateSource, elementMarkerAt, startTagRange } from '../lib/sourceMap'
 import { copyText } from './clipboard'
 import { el } from './dom'
+import { localized, t } from '../lib/i18n'
+import { icon, iconButton } from './icons'
 import { createPreview } from './locatorPreview'
 import { scrollOffsetIntoView } from './textareaScroll'
 import { toast } from './toast'
@@ -13,7 +15,6 @@ import type { TabController } from './types'
 const RENDER_DELAY_MS = 300
 const DEFAULT_NAME = 'page.html'
 const FRAMEWORK_KEY = 'mdreadar:locator-framework'
-const NO_SELECTION = 'Click an element in the preview'
 const MAX_CLASSES_SHOWN = 3
 
 const KIND: FileKind = {
@@ -30,22 +31,24 @@ const describeElement = (target: Element): string => {
 
 function matchBadge(matches: number | null): HTMLElement {
   const kind = matches === null ? 'unknown' : matches === 1 ? 'unique' : matches === 0 ? 'none' : 'multi'
-  const text = matches === null ? '?' : matches === 1 ? 'unique' : `${matches} matches`
+  const text = matches === null ? '?' : matches === 1 ? t('loc.unique') : t('loc.matches', { n: matches })
   const title =
     matches === null
-      ? 'Could not be measured in this preview'
-      : `Matches ${matches} element${matches === 1 ? '' : 's'} in this page`
+      ? t('loc.unmeasured')
+      : matches === 1
+        ? t('loc.matchesTip1')
+        : t('loc.matchesTipN', { n: matches })
   return el('span', { class: 'loc-badge', 'data-kind': kind, title }, text)
 }
 
 async function copyLocator(item: FormattedLocator): Promise<void> {
   const ok = await copyText(item.code)
-  toast(ok ? `Copied ${item.label} locator` : 'Clipboard unavailable — select the locator and copy manually', !ok)
+  toast(ok ? t('loc.copied', { label: item.label }) : t('loc.clipboard'), !ok)
 }
 
 function locatorRow(item: FormattedLocator): HTMLElement {
   const code = el('code', { class: 'path-code' }, item.code)
-  const copy = el('button', { class: 'btn small', type: 'button' }, 'Copy')
+  const copy = iconButton('copy', t('loc.copy', { label: item.label }), { variant: 'small ghost' })
   copy.addEventListener('click', () => void copyLocator(item))
   code.addEventListener('dblclick', () => copy.click())
   return el('div', { class: 'loc-row' }, el('span', { class: 'path-label' }, item.label), code, matchBadge(item.matches), copy)
@@ -59,17 +62,26 @@ function storedFrameworkId(): string {
 export function createLocatorTab(): TabController {
   const listeners: Array<() => void> = []
 
-  const input = el('textarea', {
-    class: 'json-input',
-    spellcheck: 'false',
-    'aria-label': 'Page HTML source',
-    placeholder: 'Paste the HTML source of a page here (or open a .html file), then click an element in the preview…',
-  })
-  const frameworkSelect = el('select', { class: 'json-select', 'aria-label': 'Locator syntax' })
+  const input = el('textarea', { class: 'json-input', spellcheck: 'false' })
+  const frameworkSelect = el('select', { class: 'json-select' })
   frameworkSelect.append(...FRAMEWORKS.map((f) => el('option', { value: f.id }, f.label)))
   frameworkSelect.value = storedFrameworkId()
-  const parentBtn = el('button', { class: 'btn small', type: 'button' }, 'Select parent')
-  const meta = el('p', { class: 'path-meta' }, NO_SELECTION)
+  const docsLabel = el('span')
+  const docsLink = el(
+    'a',
+    { class: 'docs-link', target: '_blank', rel: 'noopener noreferrer' },
+    icon('externalLink', 14),
+    docsLabel,
+  )
+  const companionLabel = el('span')
+  const companionLink = el(
+    'a',
+    { class: 'docs-link', target: '_blank', rel: 'noopener noreferrer' },
+    icon('externalLink', 14),
+    companionLabel,
+  )
+  const parentBtn = iconButton('parent', () => t('loc.parentTip'), { variant: 'small', text: () => t('loc.parent') })
+  const meta = el('p', { class: 'path-meta' })
   const list = el('div', { class: 'loc-list' })
   const pathBox = el('div', { class: 'pathbox' }, el('div', { class: 'path-head' }, meta, parentBtn), list)
 
@@ -79,16 +91,18 @@ export function createLocatorTab(): TabController {
     revealInSource(target)
   })
 
+  const sourceHint = el('span', { class: 'hint' })
+  const forLabel = el('span', { class: 'hint' })
   const left = el(
     'div',
     { class: 'json-col' },
-    el('div', { class: 'pane-bar' }, el('span', { class: 'hint' }, 'HTML source — click a tag or its text to see the locators')),
+    el('div', { class: 'pane-bar' }, sourceHint),
     input,
   )
   const right = el(
     'div',
     { class: 'json-col' },
-    el('div', { class: 'pane-bar' }, el('span', { class: 'hint' }, 'Locators for'), frameworkSelect),
+    el('div', { class: 'pane-bar' }, forLabel, frameworkSelect, docsLink, companionLink),
     pathBox,
     preview.element,
   )
@@ -105,7 +119,7 @@ export function createLocatorTab(): TabController {
 
   function renderLocators(): void {
     if (selected === null) {
-      meta.textContent = NO_SELECTION
+      meta.textContent = t('loc.noSelection')
       list.replaceChildren()
       return
     }
@@ -121,7 +135,7 @@ export function createLocatorTab(): TabController {
 
   function selectParent(): void {
     const parent = selected?.parentElement
-    if (!parent || parent === parent.ownerDocument.documentElement) toast('No parent element to select', true)
+    if (!parent || parent === parent.ownerDocument.documentElement) toast(t('loc.noParent'), true)
     else select(parent)
   }
 
@@ -163,10 +177,24 @@ export function createLocatorTab(): TabController {
     notify()
   }
 
+  function updateDocsLink(): void {
+    const framework = frameworkById(frameworkSelect.value)
+    if (!framework) return
+    docsLink.href = framework.docsUrl
+    docsLink.title = t('loc.docsTip', { f: framework.label })
+    docsLink.setAttribute('aria-label', docsLink.title)
+    docsLabel.textContent = t('loc.docs')
+    companionLink.href = framework.companion.url
+    companionLink.title = t('loc.companionTip', { lib: framework.companion.label, f: framework.label })
+    companionLink.setAttribute('aria-label', companionLink.title)
+    companionLabel.textContent = framework.companion.label
+  }
+
   function chooseFramework(id: string): void {
     if (!frameworkById(id)) return
     frameworkSelect.value = id
     writeStored(FRAMEWORK_KEY, id)
+    updateDocsLink()
     renderLocators()
   }
 
@@ -178,18 +206,30 @@ export function createLocatorTab(): TabController {
   frameworkSelect.addEventListener('change', () => chooseFramework(frameworkSelect.value))
   parentBtn.addEventListener('click', selectParent)
 
+  localized(() => {
+    input.setAttribute('aria-label', t('loc.sourceAria'))
+    input.placeholder = t('loc.placeholder')
+    frameworkSelect.setAttribute('aria-label', t('loc.syntaxAria'))
+    sourceHint.textContent = t('loc.sourceHint')
+    forLabel.textContent = t('loc.for')
+    updateDocsLink()
+    renderLocators()
+  })
+
   const commands = (): Command[] => [
     ...FRAMEWORKS.map((f): Command => ({
       id: `locator.framework.${f.id}`,
-      title: `Locator: Show ${f.label} locators`,
+      title: t('loc.cmd.framework', { f: f.label }),
       run: () => chooseFramework(f.id),
     })),
-    { id: 'locator.parent', title: 'Locator: Select parent element', run: selectParent },
+    { id: 'locator.parent', title: t('loc.cmd.parent'), run: selectParent },
   ]
 
   return {
     id: 'locator',
-    label: 'Locator',
+    get label() {
+      return t('tab.locator')
+    },
     kind: KIND,
     element,
     commands,

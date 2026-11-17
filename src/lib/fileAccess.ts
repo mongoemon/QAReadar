@@ -1,3 +1,5 @@
+import { t } from './i18n'
+
 export interface FileKind {
   readonly description: string
   readonly mime: string
@@ -71,7 +73,7 @@ export async function readFile(
 ): Promise<OpenedFile> {
   if (file.size > MAX_FILE_BYTES) {
     throw new Error(
-      `File is too large (${(file.size / 1048576).toFixed(1)} MB, max ${MAX_FILE_BYTES / 1048576} MB)`,
+      t('msg.tooLarge', { size: (file.size / 1048576).toFixed(1), max: MAX_FILE_BYTES / 1048576 }),
     )
   }
   return { name: file.name, text: await file.text(), handle, lastModified: file.lastModified }

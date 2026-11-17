@@ -2,6 +2,8 @@ import Editor from '@toast-ui/editor'
 import '@toast-ui/editor/dist/toastui-editor.css'
 import '@toast-ui/editor/dist/theme/toastui-editor-dark.css'
 import type { Command } from '../lib/commands'
+import { localized, t } from '../lib/i18n'
+import { icon, iconButton, setIconButton, type IconName } from './icons'
 import {
   activeDoc,
   addDoc,
@@ -161,39 +163,35 @@ export function createMarkdownTab(): TabController {
   let split = clampSplit(readStored(SPLIT_KEY))
 
   // ── chrome ──
-  const outlineBtn = el('button', { class: 'btn ghost', type: 'button', 'aria-pressed': 'false' }, 'Outline')
-  const findBtn = el('button', { class: 'btn ghost', type: 'button' }, 'Find')
-  const cleanBtn = el('button', { class: 'btn ghost', type: 'button', 'aria-pressed': 'false' }, 'Read & edit')
-  const smallerBtn = el('button', { class: 'btn ghost', type: 'button', 'aria-label': 'Smaller text' }, 'A−')
-  const largerBtn = el('button', { class: 'btn ghost', type: 'button', 'aria-label': 'Larger text' }, 'A+')
-  const widthBtn = el('button', { class: 'btn ghost', type: 'button', 'aria-label': 'Column width' }, '')
-  const refreshBtn = el('button', { class: 'btn ghost refresh-btn', type: 'button' }, 'Refresh')
+  const outlineBtn = iconButton('outline', () => t('md.outline'), { variant: 'ghost', attrs: { 'aria-pressed': 'false' } })
+  const findBtn = iconButton('search', () => t('md.find'), { variant: 'ghost', shortcut: 'Ctrl+F' })
+  const cleanBtn = iconButton('book', '', { variant: 'ghost', text: ' ', attrs: { 'aria-pressed': 'false' } })
+  const smallerBtn = iconButton('textSmaller', () => t('md.smaller'), { variant: 'ghost' })
+  const largerBtn = iconButton('textLarger', () => t('md.larger'), { variant: 'ghost' })
+  const widthBtn = iconButton('widthNormal', '', { variant: 'ghost' })
+  const refreshBtn = iconButton('refresh', () => t('md.refresh'), { variant: 'ghost refresh-btn' })
+  const WIDTH_ICONS: Record<WidthPref, IconName> = { narrow: 'widthNarrow', normal: 'widthNormal', wide: 'widthWide' }
+  const diskWarnText = el('span', {})
   const diskWarn = el(
     'span',
-    {
-      class: 'disk-warn',
-      role: 'status',
-      title: 'The file was moved, renamed or deleted. Your text is still here — use Save as to write it to a new file.',
-    },
+    { class: 'disk-warn', role: 'status' },
     el('span', { class: 'disk-warn-dot', 'aria-hidden': 'true' }),
-    'File not found on disk',
+    diskWarnText,
   )
+  const hint = el('span', { class: 'hint' })
   diskWarn.hidden = true
   const bar = el(
     'div',
     { class: 'pane-bar' },
     refreshBtn,
     diskWarn,
-    outlineBtn,
-    findBtn,
+    el('span', { class: 'btn-group' }, outlineBtn, findBtn),
     cleanBtn,
-    smallerBtn,
-    largerBtn,
-    widthBtn,
-    el('span', { class: 'hint' }, 'Ctrl+K commands · Ctrl+F find · Ctrl+S save'),
+    el('span', { class: 'btn-group' }, smallerBtn, largerBtn, widthBtn),
+    hint,
   )
-  const docStrip = el('div', { class: 'doc-tabs', role: 'tablist', 'aria-label': 'Open documents' })
-  const outlineList = el('nav', { class: 'outline-list', 'aria-label': 'Document outline' })
+  const docStrip = el('div', { class: 'doc-tabs', role: 'tablist' })
+  const outlineList = el('nav', { class: 'outline-list' })
   const outline = el('aside', { class: 'md-outline' }, outlineList)
   outline.hidden = true
   const host = el('div', { class: 'md-host' })
@@ -238,7 +236,7 @@ export function createMarkdownTab(): TabController {
   function applyPrefs(): void {
     element.style.setProperty('--read-size', `${fontSize}px`)
     element.style.setProperty('--read-width', WIDTH_CH[width])
-    widthBtn.textContent = `Width: ${width}`
+    renderWidthBtn()
     writeStored(FONT_KEY, String(fontSize))
     writeStored(WIDTH_KEY, width)
   }
@@ -246,7 +244,7 @@ export function createMarkdownTab(): TabController {
   function refreshOutline(): void {
     const headings = extractHeadings(editor.getMarkdown())
     if (headings.length === 0) {
-      outlineList.replaceChildren(el('p', { class: 'hint' }, 'No headings yet'))
+      outlineList.replaceChildren(el('p', { class: 'hint' }, t('md.noHeadings')))
       return
     }
     outlineList.replaceChildren(
@@ -272,8 +270,8 @@ export function createMarkdownTab(): TabController {
 
   function refreshStatus(): void {
     const stats = computeStats(editor.getMarkdown())
-    const minutes = stats.minutes === 0 ? '' : ` · ~${stats.minutes} min read`
-    status.textContent = `${stats.words} words · ${stats.chars} chars${minutes}`
+    const minutes = stats.minutes === 0 ? '' : t('md.minutes', { m: stats.minutes })
+    status.textContent = t('md.stats', { words: stats.words, chars: stats.chars }) + minutes
   }
 
   const worthKeeping = (doc: Doc): boolean =>
@@ -337,23 +335,23 @@ export function createMarkdownTab(): TabController {
   async function refreshFromDisk(): Promise<void> {
     const doc = activeDoc(set)
     if (!doc.handle) {
-      toast('This document is not linked to a file on disk', true)
+      toast(t('md.notLinked'), true)
       return
     }
     const result = await readHandle(doc.handle, true)
     if (result.status === 'denied') {
-      toast('Permission to read the file was denied', true)
+      toast(t('msg.readDenied'), true)
       return
     }
     if (result.status === 'missing') {
       diskState.set(doc.id, 'missing')
       renderDocTabs()
-      toast(`${doc.name} was not found on disk — your text is kept in the app`, true)
+      toast(t('md.missing', { name: doc.name }), true)
       return
     }
     const current = activeDoc(set)
     if (current.id !== doc.id) return // user switched documents while we were reading
-    if (isDocDirty(current) && !window.confirm(`Discard unsaved changes to "${current.name}" and reload it from disk?`)) {
+    if (isDocDirty(current) && !window.confirm(t('md.confirmReload', { name: current.name }))) {
       return
     }
     const before = editor.getMarkdown()
@@ -362,7 +360,7 @@ export function createMarkdownTab(): TabController {
     diskState.delete(doc.id)
     set = replaceDoc(set, doc.id, { ...current, name: file.name, text: file.text, savedText: file.text })
     loadActive()
-    toast(editor.getMarkdown() === before ? `${file.name} is already up to date` : `Reloaded ${file.name} from disk`)
+    toast(t(editor.getMarkdown() === before ? 'md.upToDate' : 'md.reloaded', { name: file.name }))
   }
 
   async function restamp(id: string, handle: FileHandleLike | null): Promise<void> {
@@ -379,15 +377,15 @@ export function createMarkdownTab(): TabController {
     refreshBtn.disabled = !doc.handle
     refreshBtn.classList.toggle('has-update', state === 'changed')
     refreshBtn.title = !doc.handle
-      ? 'Only documents opened from a file on disk can be refreshed'
+      ? t('md.refreshNoFile')
       : state === 'changed'
-        ? 'The file changed on disk — click to reload it'
-        : 'Reload this document from its file on disk'
+        ? t('md.refreshChanged')
+        : t('md.refreshTip')
   }
 
   function renderDocTabs(): void {
     renderDiskStatus()
-    const addBtn = el('button', { class: 'doc-add', type: 'button', 'aria-label': 'New document' }, '+')
+    const addBtn = el('button', { class: 'doc-add', type: 'button', 'aria-label': t('md.newDoc'), title: t('md.newDoc') }, icon('plus', 14))
     addBtn.addEventListener('click', newDocument)
     docStrip.replaceChildren(
       ...set.docs.map((doc) => {
@@ -400,14 +398,14 @@ export function createMarkdownTab(): TabController {
             role: 'tab',
             type: 'button',
             'aria-selected': String(selected),
-            title: missing ? `${doc.name} — file not found on disk (text kept)` : doc.name,
+            title: missing ? t('md.docMissingTip', { name: doc.name }) : doc.name,
           },
-          missing ? el('span', { class: 'disk-warn-dot', 'aria-label': 'File not found on disk' }) : '',
+          missing ? el('span', { class: 'disk-warn-dot', 'aria-label': t('md.docMissingDot') }) : '',
           isDocDirty(doc) ? '● ' : '',
           doc.name,
         )
         tab.addEventListener('click', () => switchTo(doc.id))
-        const close = el('button', { class: 'doc-close', type: 'button', 'aria-label': `Close ${doc.name}` }, '×')
+        const close = el('button', { class: 'doc-close', type: 'button', 'aria-label': t('md.closeDoc', { name: doc.name }), title: t('md.closeTip') }, icon('close', 12))
         close.addEventListener('click', () => closeById(doc.id))
         return el('span', { class: selected ? 'doc-item active' : 'doc-item' }, tab, close)
       }),
@@ -469,7 +467,7 @@ export function createMarkdownTab(): TabController {
   function closeById(id: string): void {
     const doc = set.docs.find((d) => d.id === id)
     if (!doc) return
-    if (isDocDirty(doc) && !window.confirm(`"${doc.name}" has unsaved changes. Close anyway?`)) return
+    if (isDocDirty(doc) && !window.confirm(t('md.confirmClose', { name: doc.name }))) return
     set = closeDoc(set, id, () => {
       const fresh = makeDoc(DEFAULT_NAME, '', null)
       ephemeral.add(fresh.id)
@@ -484,7 +482,7 @@ export function createMarkdownTab(): TabController {
     clean = on
     element.classList.toggle('md-clean', on)
     cleanBtn.setAttribute('aria-pressed', String(on))
-    cleanBtn.textContent = on ? 'Source view' : 'Read & edit'
+    renderCleanBtn()
     loading = true
     editor.changeMode(on ? 'wysiwyg' : 'markdown', true)
     loading = false
@@ -506,12 +504,12 @@ export function createMarkdownTab(): TabController {
   function exportHtml(): void {
     const name = activeDoc(set).name.replace(/\.[^.]+$/, '') || 'document'
     downloadText(`${name}.html`, htmlDocument(), 'text/html')
-    toast(`Exported ${name}.html`)
+    toast(t('md.exported', { name: `${name}.html` }))
   }
 
   async function copyAsHtml(): Promise<void> {
     const ok = await copyHtml(editor.getHTML(), editor.getMarkdown())
-    toast(ok ? 'Copied as HTML' : 'Clipboard unavailable', !ok)
+    toast(ok ? t('md.copiedHtml') : t('msg.clipboard'), !ok)
   }
 
   function adjustFont(delta: number): void {
@@ -531,7 +529,7 @@ export function createMarkdownTab(): TabController {
   const splitter = host.querySelector<HTMLElement>('.toastui-editor-md-splitter')
   const splitReset = el(
     'button',
-    { class: 'md-split-reset', type: 'button', title: 'Reset to 50 / 50', 'aria-label': 'Reset split to 50 / 50' },
+    { class: 'md-split-reset', type: 'button' },
     '⇔',
   )
 
@@ -553,7 +551,6 @@ export function createMarkdownTab(): TabController {
     Object.assign(splitter, { tabIndex: 0 })
     splitter.setAttribute('role', 'separator')
     splitter.setAttribute('aria-orientation', 'vertical')
-    splitter.setAttribute('aria-label', 'Resize markdown and preview (double-click to reset)')
     splitter.setAttribute('aria-valuemin', String(SPLIT_MIN))
     splitter.setAttribute('aria-valuemax', String(SPLIT_MAX))
 
@@ -619,30 +616,58 @@ export function createMarkdownTab(): TabController {
     true,
   )
 
+  function renderWidthBtn(): void {
+    setIconButton(widthBtn, WIDTH_ICONS[width], t('md.width', { w: t(`width.${width}`) }))
+  }
+
+  function renderCleanBtn(): void {
+    if (clean) setIconButton(cleanBtn, 'code', t('md.sourceTip'), t('md.source'))
+    else setIconButton(cleanBtn, 'book', t('md.readEditTip'), t('md.readEdit'))
+  }
+
   applyPrefs()
   loadActive()
   void hydrate()
 
+  // Static chrome and every piece of rendered text follow the UI language.
+  localized(() => {
+    diskWarn.title = t('md.diskWarnTip')
+    diskWarnText.textContent = t('md.diskWarn')
+    hint.textContent = t('md.hint')
+    docStrip.setAttribute('aria-label', t('md.docsAria'))
+    outlineList.setAttribute('aria-label', t('md.outlineAria'))
+    splitReset.title = t('md.splitReset')
+    splitReset.setAttribute('aria-label', t('md.splitResetAria'))
+    splitter?.setAttribute('aria-label', t('md.splitAria'))
+    renderWidthBtn()
+    renderCleanBtn()
+    renderDocTabs()
+    refreshStatus()
+    if (!outline.hidden) refreshOutline()
+  })
+
   const commands = (): Command[] => [
-    { id: 'md.refresh', title: 'Markdown: Refresh from disk', run: () => void refreshFromDisk().catch((e) => toast(String(e), true)) },
-    { id: 'md.clean', title: 'Markdown: Toggle Read & edit view', run: () => setClean(!clean) },
-    { id: 'md.outline', title: 'Markdown: Toggle outline', run: () => setOutlineVisible(Boolean(outline.hidden)) },
-    { id: 'md.find', title: 'Markdown: Find', hint: 'Ctrl+F', run: () => findBar.open(false) },
-    { id: 'md.replace', title: 'Markdown: Find and replace', hint: 'Ctrl+H', run: () => findBar.open(true) },
-    { id: 'md.new', title: 'Markdown: New document', run: newDocument },
-    { id: 'md.close', title: 'Markdown: Close document', run: () => closeById(set.activeId) },
-    { id: 'md.export', title: 'Markdown: Export as HTML', run: exportHtml },
-    { id: 'md.copy', title: 'Markdown: Copy as HTML', run: () => void copyAsHtml() },
-    { id: 'md.print', title: 'Markdown: Print / Save as PDF', run: () => printHtml(htmlDocument()) },
-    { id: 'md.bigger', title: 'Markdown: Larger text', run: () => adjustFont(1) },
-    { id: 'md.smaller', title: 'Markdown: Smaller text', run: () => adjustFont(-1) },
-    { id: 'md.width', title: 'Markdown: Cycle column width', run: cycleColumnWidth },
-    { id: 'md.split-reset', title: 'Markdown: Reset source/preview split', run: resetSplit },
+    { id: 'md.refresh', title: t('md.cmd.refresh'), run: () => void refreshFromDisk().catch((e) => toast(String(e), true)) },
+    { id: 'md.clean', title: t('md.cmd.clean'), run: () => setClean(!clean) },
+    { id: 'md.outline', title: t('md.cmd.outline'), run: () => setOutlineVisible(Boolean(outline.hidden)) },
+    { id: 'md.find', title: t('md.cmd.find'), hint: 'Ctrl+F', run: () => findBar.open(false) },
+    { id: 'md.replace', title: t('md.cmd.replace'), hint: 'Ctrl+H', run: () => findBar.open(true) },
+    { id: 'md.new', title: t('md.cmd.new'), run: newDocument },
+    { id: 'md.close', title: t('md.cmd.close'), run: () => closeById(set.activeId) },
+    { id: 'md.export', title: t('md.cmd.export'), run: exportHtml },
+    { id: 'md.copy', title: t('md.cmd.copy'), run: () => void copyAsHtml() },
+    { id: 'md.print', title: t('md.cmd.print'), run: () => printHtml(htmlDocument()) },
+    { id: 'md.bigger', title: t('md.cmd.bigger'), run: () => adjustFont(1) },
+    { id: 'md.smaller', title: t('md.cmd.smaller'), run: () => adjustFont(-1) },
+    { id: 'md.width', title: t('md.cmd.width'), run: cycleColumnWidth },
+    { id: 'md.split-reset', title: t('md.cmd.split'), run: resetSplit },
   ]
 
   return {
     id: 'markdown',
-    label: 'Markdown',
+    get label() {
+      return t('tab.markdown')
+    },
     kind: KIND,
     multiDoc: true,
     element,

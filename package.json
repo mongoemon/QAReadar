@@ -1,13 +1,15 @@
 {
   "name": "qareadar",
   "private": true,
-  "version": "1.1.0",
+  "version": "1.2.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "test": "vitest run"
+    "test": "vitest run",
+    "release": "node scripts/release.mjs",
+    "deploy": "npm run build && npx wrangler pages deploy dist --project-name qareadar --branch main"
   },
   "dependencies": {
     "@toast-ui/editor": "^3.2.2",

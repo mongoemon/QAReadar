@@ -15,6 +15,26 @@ npm run preview    # ลองไฟล์ที่ build แล้ว
 
 Build ใช้ `base: './'` จึงนำ `dist/` ไปวางบน static host ที่ sub-path ใดก็ได้
 
+## ออก release (เพิ่มเวอร์ชัน → commit → push → deploy)
+
+คำสั่งเดียวจบ: เพิ่มเลขเวอร์ชัน, เพิ่ม changelog, รันเทสต์ + build, commit, push และ deploy ขึ้น Cloudflare Pages (https://qareadar.pages.dev)
+
+```bash
+npm run release -- patch "fix: แก้ค้นหา JSON ไม่สนตัวพิมพ์"     # 1.2.0 → 1.2.1
+npm run release -- minor "feat: export locator เป็น CSV"        # 1.2.0 → 1.3.0
+npm run release -- major "feat!: เปลี่ยนรูปแบบไฟล์"              # 1.2.0 → 2.0.0
+npm run release -- 1.5.0 "feat: ..."                            # กำหนดเลขเอง
+npm run release -- none  "docs: แก้ README"                     # ไม่เปลี่ยนเวอร์ชัน
+npm run release -- patch "fix: ..." --dry-run                   # ดูก่อนว่าจะทำอะไร ไม่แก้อะไรจริง
+npm run deploy                                                  # deploy อย่างเดียว ไม่แตะ git
+```
+
+- ตัวเลือกเพิ่ม: `--no-push` (commit อย่างเดียว), `--no-deploy` (ไม่ deploy)
+- ถ้าใน `src/lib/changelog.ts` ยังไม่มีรายการของเวอร์ชันใหม่ สคริปต์จะเพิ่มให้จากข้อความ commit (`feat:` → เพิ่ม, `fix:` → แก้ไข, อื่น ๆ → เปลี่ยน) อยากเขียนให้ละเอียดกว่านั้นก็เพิ่มรายการเองก่อนรัน
+- ถ้าเทสต์หรือ build ไม่ผ่าน จะยกเลิกการเปลี่ยนเลขเวอร์ชัน/changelog และไม่ commit / push / deploy
+- commit ทุกไฟล์ที่เปลี่ยนในโปรเจกต์ (`git add -A`) ควรดู `git status` ก่อน
+- ต้อง login Cloudflare ไว้ครั้งแรก: `npx wrangler login`
+
 ## ฟีเจอร์
 
 ### Markdown
@@ -62,8 +82,10 @@ Build ใช้ `base: './'` จึงนำ `dist/` ไปวางบน stati
 - **เปิดไฟล์**: ปุ่ม Open, ลากไฟล์มาวางทั้งหน้า (สลับแท็บตามนามสกุล `.md` `.markdown` `.txt` `.json` `.jsonl` `.ndjson` `.csv` `.yaml` `.yml` `.html` `.htm`)
 - **บันทึก**: `Ctrl+S` บันทึกทับไฟล์เดิม, `Ctrl+Shift+S` บันทึกเป็นไฟล์ใหม่
 - **ไฟล์ล่าสุด** (Recent): จำได้ 10 ไฟล์ล่าสุด
+- **ปุ่มเป็นไอคอน** พร้อม tooltip บอกชื่อและคีย์ลัด
+- **ภาษา**: English / ไทย สลับได้ทันทีจากปุ่ม 文A ที่แถบบน (หรือ command palette) จำค่าไว้ และเลือกตามภาษาเบราว์เซอร์ในครั้งแรก ข้อความทั้งหมดอยู่ที่ `src/lib/i18n.ts`
 - **Theme**: auto / light / dark
-- **Focus mode**: ซ่อนแถบด้านบน ออกด้วย `Esc`
+- **ซ่อน UI (focus mode)** (`Ctrl+.`): ซ่อนแถบเครื่องมือทั้งหมด เหลือแต่เนื้อหา ออกด้วย `Esc` หรือ `Ctrl+.`
 - **เตือนก่อนปิดหน้า** เมื่อมีงานที่ยังไม่บันทึก
 - **PWA**: ติดตั้งเป็นแอปและใช้งานออฟไลน์ได้หลังเปิดครั้งแรก (ทำงานเฉพาะ build จริง ไม่ทำงานใน `npm run dev`)
 - **รองรับจอแคบ**: layout สองคอลัมน์พับเป็นแนวตั้ง
@@ -96,6 +118,7 @@ Build ใช้ `base: './'` จึงนำ `dist/` ไปวางบน stati
 | `Ctrl+Shift+S` | บันทึกเป็นไฟล์ใหม่ |
 | `Ctrl+F` | ค้นหา (แท็บ Markdown) |
 | `Ctrl+H` | ค้นหาและแทนที่ (แท็บ Markdown) |
+| `Ctrl+.` | ซ่อน / แสดง UI (focus mode) |
 | `Esc` | ปิด palette / แถบค้นหา / ออกจาก focus mode |
 | `Enter` / `Shift+Enter` | ผลค้นหาถัดไป / ก่อนหน้า (ในช่อง Find) |
 
@@ -135,14 +158,16 @@ src/
 │   ├── commands.ts    # fuzzy filter ของ palette
 │   ├── exportHtml.ts  # สร้างเอกสาร HTML
 │   ├── recent.ts / recentStore.ts   # ไฟล์ล่าสุด (IndexedDB)
+│   ├── i18n.ts        # ข้อความ UI ภาษาอังกฤษ / ไทย และการสลับภาษา
 │   ├── theme.ts / readingPrefs.ts / safeStorage.ts
 │   └── fileAccess.ts  # เปิด / บันทึกไฟล์
 └── ui/                # ส่วนที่แตะ DOM
     ├── markdownTab.ts, findBar.ts
     ├── jsonTab.ts, jsonTree.ts
     ├── locatorTab.ts, locatorPreview.ts, textareaScroll.ts
-    └── palette.ts, toast.ts, clipboard.ts, dom.ts, types.ts
+    └── palette.ts, icons.ts, toast.ts, clipboard.ts, dom.ts, types.ts
 public/                # manifest, service worker, icon (PWA)
+scripts/release.mjs    # สคริปต์ release (npm run release)
 ```
 
 เพิ่มแท็บใหม่ได้โดยทำ `TabController` (ดู `src/ui/types.ts`) แล้วเพิ่มเข้า `tabs` ใน `src/main.ts`
