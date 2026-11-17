@@ -3,6 +3,8 @@
 เว็บแอปฝั่ง client ล้วน (ไม่มี backend) สำหรับ **แก้ไขไฟล์ Markdown**, **หา path ของค่าใน JSON** และ **หา locator ขององค์ประกอบในหน้า HTML** (Playwright / Robot Framework / Cucumber Java / Playwright Java)
 ไฟล์ทั้งหมดอยู่ในเบราว์เซอร์ของคุณ ไม่มีการอัปโหลดไปไหน
 
+📖 **คู่มือการใช้งาน: [docs/USER_GUIDE.md](docs/USER_GUIDE.md)** · คู่มือออก release: [docs/RELEASE.md](docs/RELEASE.md)
+
 ## เริ่มใช้งาน
 
 ```bash
