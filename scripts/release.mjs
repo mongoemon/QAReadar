@@ -48,10 +48,15 @@ const fail = (text) => {
   process.exit(1)
 }
 
+// On Windows npm / npx are .cmd shims, which Node can only start through a shell. Their
+// arguments here never contain spaces, so that is safe; git (with the commit message) runs
+// without a shell so the message is passed through untouched.
+const needsShell = (cmd) => process.platform === 'win32' && (cmd === 'npm' || cmd === 'npx')
+
 /** Run a command with live output; throws on a non-zero exit. */
-const run = (cmd, args) => execFileSync(cmd, args, { cwd: ROOT, stdio: 'inherit' })
+const run = (cmd, args) => execFileSync(cmd, args, { cwd: ROOT, stdio: 'inherit', shell: needsShell(cmd) })
 /** Run a command and return its trimmed stdout. */
-const read = (cmd, args) => execFileSync(cmd, args, { cwd: ROOT, encoding: 'utf8' }).trim()
+const read = (cmd, args) => execFileSync(cmd, args, { cwd: ROOT, encoding: 'utf8', shell: needsShell(cmd) }).trim()
 
 function nextVersion(current, bump) {
   if (/^\d+\.\d+\.\d+$/.test(bump)) return bump

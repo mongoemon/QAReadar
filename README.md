@@ -30,6 +30,13 @@ npm run deploy                                                  # deploy อย�
 ```
 
 - ตัวเลือกเพิ่ม: `--no-push` (commit อย่างเดียว), `--no-deploy` (ไม่ deploy)
+- **Windows / PowerShell** ใช้ไฟล์ `.ps1` ได้เลย (ต้องมี Node.js):
+  ```powershell
+  .\scripts\release.ps1 patch "fix: แก้บั๊ก ..."
+  .\scripts\release.ps1 minor "feat: ฟีเจอร์ใหม่" -NoDeploy
+  .\scripts\release.ps1 patch "fix: ..." -DryRun
+  ```
+  ถ้า PowerShell ไม่ยอมรันสคริปต์ ให้รันครั้งเดียว: `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`
 - ถ้าใน `src/lib/changelog.ts` ยังไม่มีรายการของเวอร์ชันใหม่ สคริปต์จะเพิ่มให้จากข้อความ commit (`feat:` → เพิ่ม, `fix:` → แก้ไข, อื่น ๆ → เปลี่ยน) อยากเขียนให้ละเอียดกว่านั้นก็เพิ่มรายการเองก่อนรัน
 - ถ้าเทสต์หรือ build ไม่ผ่าน จะยกเลิกการเปลี่ยนเลขเวอร์ชัน/changelog และไม่ commit / push / deploy
 - commit ทุกไฟล์ที่เปลี่ยนในโปรเจกต์ (`git add -A`) ควรดู `git status` ก่อน
@@ -168,6 +175,7 @@ src/
     └── palette.ts, icons.ts, toast.ts, clipboard.ts, dom.ts, types.ts
 public/                # manifest, service worker, icon (PWA)
 scripts/release.mjs    # สคริปต์ release (npm run release)
+scripts/release.ps1    # ตัวเรียกสคริปต์ release จาก PowerShell
 ```
 
 เพิ่มแท็บใหม่ได้โดยทำ `TabController` (ดู `src/ui/types.ts`) แล้วเพิ่มเข้า `tabs` ใน `src/main.ts`
