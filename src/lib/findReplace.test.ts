@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { findMatches, offsetToPos, replaceAll, replaceMatch } from './findReplace'
+import { findMatches, offsetToPos, replaceAll, replaceMatch, replacementFor, unescapeExtended } from './findReplace'
 
 const plain = { caseSensitive: false, regex: false }
 
@@ -72,5 +72,63 @@ describe('offsetToPos', () => {
     expect(offsetToPos(text, 0)).toEqual([1, 1])
     expect(offsetToPos(text, 4)).toEqual([2, 2])
     expect(offsetToPos(text, 7)).toEqual([3, 1])
+  })
+})
+
+describe('extended mode (Notepad++)', () => {
+  const ext = { caseSensitive: false, regex: false, extended: true }
+
+  it('decodes escapes', () => {
+    expect(unescapeExtended('a\\nb\\tc\\\\n')).toBe('a\nb\tc\\n')
+    expect(unescapeExtended('\\x41\\u0E01\\o101\\d065\\b01000001')).toBe('Aก' + 'AAA')
+    expect(unescapeExtended('\\0')).toBe('\0')
+  })
+
+  it('keeps unknown or incomplete escapes as typed', () => {
+    expect(unescapeExtended('\\q \\x4 \\d99 end\\')).toBe('\\q \\x4 \\d99 end\\')
+  })
+
+  it('finds and replaces line breaks and tabs', () => {
+    expect(replaceAll('a,b,c', ',', '\\n', ext)).toEqual({ text: 'a\nb\nc', count: 2 })
+    expect(replaceAll('a\nb\nc', '\\n', '\\t', ext)).toEqual({ text: 'a\tb\tc', count: 2 })
+  })
+
+  it('leaves escapes literal when extended is off', () => {
+    expect(replaceAll('a,b', ',', '\\n', plain)).toEqual({ text: 'a\\nb', count: 1 })
+  })
+
+  it('replacementFor decodes the replacement too', () => {
+    const text = 'x;y'
+    expect(replacementFor(text, { start: 1, end: 2 }, ';', '\\r\\n', ext)).toBe('\r\n')
+  })
+})
+
+describe('regex replacement escapes', () => {
+  const rx = { caseSensitive: false, regex: true }
+
+  it('understands \\n and backslash backreferences', () => {
+    expect(replaceAll('a=1;b=2', '(\\w)=(\\d);?', '\\2:\\1\\n', rx)).toEqual({ text: '1:a\n2:b\n', count: 2 })
+  })
+
+  it('does not decode escapes inside captured text', () => {
+    expect(replaceAll('C:\\new', '(.+)', '[$1]', rx).text).toBe('[C:\\new]')
+  })
+
+  it('\\\\ gives a literal backslash', () => {
+    expect(replaceAll('a', 'a', '\\\\n', rx).text).toBe('\\n')
+  })
+})
+
+describe('whole word and dot-all', () => {
+  it('matches whole words only, including Thai/Unicode letters as word characters', () => {
+    const r = findMatches('cat concat cat_1 cat.', 'cat', { caseSensitive: false, regex: false, wholeWord: true })
+    expect(r.ok && r.matches.map((m) => m.start)).toEqual([0, 17])
+  })
+
+  it('lets . cross line breaks when dotAll is on', () => {
+    const on = findMatches('a\nb', 'a.b', { caseSensitive: false, regex: true, dotAll: true })
+    const off = findMatches('a\nb', 'a.b', { caseSensitive: false, regex: true })
+    expect(on.ok && on.matches.length).toBe(1)
+    expect(off.ok && off.matches.length).toBe(0)
   })
 })

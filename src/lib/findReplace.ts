@@ -1,6 +1,16 @@
 export interface FindOptions {
   readonly caseSensitive: boolean
   readonly regex: boolean
+  /**
+   * Notepad++ "Extended" mode: \n \r \t \0 \\ \xHH \uHHHH \oNNN \dNNN \bNNNNNNNN in the
+   * search and replace text stand for the characters they name. Ignored for the search text in
+   * regex mode (the regex engine already understands escapes).
+   */
+  readonly extended?: boolean
+  /** Only match where the hit is not inside a longer word (letters, digits, underscore). */
+  readonly wholeWord?: boolean
+  /** Regex mode: `.` also matches line breaks. */
+  readonly dotAll?: boolean
 }
 
 export interface Match {
@@ -16,12 +26,72 @@ export const MAX_MATCHES = 10_000
 
 const escapeRegex = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
-function flagsFor(options: FindOptions, extra: string): string {
-  return `${extra}${options.caseSensitive ? '' : 'i'}${options.regex ? 'm' : ''}`
+/** Escape sequences understood in Extended mode, Notepad++ style. */
+export const EXTENDED_ESCAPES = '\\n \\r \\t \\0 \\\\ \\xHH \\uHHHH \\oNNN \\dNNN \\bNNNNNNNN'
+
+const SIMPLE_ESCAPES: Readonly<Record<string, string>> = { n: '\n', r: '\r', t: '\t', '0': '\0', '\\': '\\' }
+const NUMERIC_ESCAPES: Readonly<Record<string, readonly [radix: number, digits: number, pattern: RegExp]>> = {
+  x: [16, 2, /^[0-9a-fA-F]{2}$/],
+  u: [16, 4, /^[0-9a-fA-F]{4}$/],
+  o: [8, 3, /^[0-7]{3}$/],
+  d: [10, 3, /^[0-9]{3}$/],
+  b: [2, 8, /^[01]{8}$/],
 }
 
+/**
+ * Turn Extended-mode escapes into the characters they stand for. Anything that is not a
+ * complete, known escape (e.g. `\q`, `\x4`) is kept as typed.
+ */
+export function unescapeExtended(text: string): string {
+  let out = ''
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i]
+    if (ch !== '\\' || i === text.length - 1) {
+      out += ch
+      continue
+    }
+    const next = text[i + 1]
+    const simple = SIMPLE_ESCAPES[next]
+    if (simple !== undefined) {
+      out += simple
+      i++
+      continue
+    }
+    const numeric = NUMERIC_ESCAPES[next]
+    if (numeric) {
+      const [radix, digits, pattern] = numeric
+      const body = text.slice(i + 2, i + 2 + digits)
+      const code = pattern.test(body) ? Number.parseInt(body, radix) : Number.NaN
+      if (!Number.isNaN(code) && code <= 0xffff) {
+        out += String.fromCharCode(code)
+        i += 1 + digits
+        continue
+      }
+    }
+    out += ch
+  }
+  return out
+}
+
+/** The search text as the engine should see it (Extended escapes decoded outside regex mode). */
+const effectiveQuery = (query: string, options: FindOptions): string =>
+  options.extended && !options.regex ? unescapeExtended(query) : query
+
+function flagsFor(options: FindOptions, extra: string): string {
+  return (
+    extra +
+    (options.caseSensitive ? '' : 'i') +
+    (options.regex ? 'm' : '') +
+    (options.regex && options.dotAll ? 's' : '') +
+    (options.wholeWord ? 'u' : '')
+  )
+}
+
+const WORD_CHAR = '[\\p{L}\\p{N}\\p{M}_]'
+
 function sourceFor(query: string, options: FindOptions): string {
-  return options.regex ? query : escapeRegex(query)
+  const base = options.regex ? query : escapeRegex(effectiveQuery(query, options))
+  return options.wholeWord ? `(?<!${WORD_CHAR})(?:${base})(?!${WORD_CHAR})` : base
 }
 
 function compile(
@@ -54,13 +124,29 @@ export function findMatches(text: string, query: string, options: FindOptions): 
   return { ok: true, matches }
 }
 
+/**
+ * Regex-mode replacement: `$&` / `$1`…`$99` / `$$` as in JavaScript, plus Notepad++-style
+ * `\0` (whole match), `\1`…`\9` and the Extended escapes (`\n`, `\t`, `\x41`…).
+ */
 function expand(template: string, match: string, groups: readonly (string | undefined)[]): string {
-  return template.replace(/\$(\$|&|\d{1,2})/g, (_all, token: string) => {
-    if (token === '$') return '$'
-    if (token === '&') return match
-    return groups[Number(token) - 1] ?? ''
-  })
+  // One pass, so text captured from the document is inserted verbatim, never re-decoded.
+  return template.replace(
+    /\$(\$|&|\d{1,2})|\\(x[0-9a-fA-F]{2}|u[0-9a-fA-F]{4}|o[0-7]{3}|d[0-9]{3}|b[01]{8}|[nrt\\]|\d)/g,
+    (all, dollar: string | undefined, slash: string | undefined) => {
+      if (dollar === '$') return '$'
+      if (dollar === '&') return match
+      if (dollar !== undefined) return groups[Number(dollar) - 1] ?? ''
+      if (slash === undefined) return all
+      if (slash === '0') return match
+      if (/^\d$/.test(slash)) return groups[Number(slash) - 1] ?? ''
+      return unescapeExtended(all)
+    },
+  )
 }
+
+/** The replacement text for a literal (non-regex) match. */
+const literalReplacement = (replacement: string, options: FindOptions): string =>
+  options.extended ? unescapeExtended(replacement) : replacement
 
 export function replaceAll(
   text: string,
@@ -74,10 +160,11 @@ export function replaceAll(
   const compiled = compile(query, options, 'g')
   if (!compiled.ok) return { text, count: 0 }
 
+  const literal = literalReplacement(replacement, options)
   const replaced = text.replace(compiled.re, (...args: unknown[]) => {
     const match = String(args[0])
     if (match === '') return ''
-    if (!options.regex) return replacement
+    if (!options.regex) return literal
     const rest = args.slice(1)
     const offsetAt = rest.findIndex((a) => typeof a === 'number')
     return expand(replacement, match, rest.slice(0, offsetAt) as (string | undefined)[])
@@ -93,7 +180,7 @@ export function replacementFor(
   replacement: string,
   options: FindOptions,
 ): string {
-  if (!options.regex) return replacement
+  if (!options.regex) return literalReplacement(replacement, options)
   const compiled = compile(query, options, 'y')
   if (!compiled.ok) return replacement
   compiled.re.lastIndex = match.start

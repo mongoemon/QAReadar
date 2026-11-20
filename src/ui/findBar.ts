@@ -1,4 +1,5 @@
 import {
+  EXTENDED_ESCAPES,
   findMatches,
   replaceAll,
   replacementFor,
@@ -22,7 +23,8 @@ export interface FindHost {
 
 export interface FindBar {
   readonly element: HTMLElement
-  open(withReplace: boolean): void
+  /** `seed`: text to search for (e.g. the editor's single-line selection). */
+  open(withReplace: boolean, seed?: string): void
   close(): void
 }
 
@@ -41,7 +43,11 @@ export function createFindBar(host: FindHost): FindBar {
   const replaceEvery = iconButton('replaceAll', () => t('find.replaceAllTip'), { variant: 'small', text: () => t('find.replaceAll') })
   const closeBtn = iconButton('close', () => t('find.close'), { variant: 'small ghost', shortcut: 'Esc' })
   const caseOpt = checkbox('Aa')
+  const wordOpt = checkbox('W')
+  const extOpt = checkbox('\\n')
   const regexOpt = checkbox('.*')
+  const dotOpt = checkbox('.⏎')
+  dotOpt.node.hidden = true
   localized(() => {
     findInput.setAttribute('aria-label', t('find.aria'))
     findInput.placeholder = t('find.placeholder')
@@ -49,20 +55,47 @@ export function createFindBar(host: FindHost): FindBar {
     replaceInput.placeholder = t('find.replacePlaceholder')
     caseOpt.box.title = t('find.case')
     regexOpt.box.title = t('find.regex')
+    wordOpt.box.title = t('find.word')
+    extOpt.box.title = t('find.extended', { escapes: EXTENDED_ESCAPES })
+    dotOpt.box.title = t('find.dotAll')
+    for (const opt of [caseOpt, wordOpt, extOpt, regexOpt, dotOpt]) opt.node.title = opt.box.title
   })
 
   const replaceRow = el('div', { class: 'find-row' }, replaceInput, replaceOne, replaceEvery)
   const element = el(
     'div',
     { class: 'findbar', role: 'search' },
-    el('div', { class: 'find-row' }, findInput, prev, next, caseOpt.node, regexOpt.node, status, closeBtn),
+    el('div', { class: 'find-row' }, findInput, prev, next, caseOpt.node, wordOpt.node, extOpt.node, regexOpt.node, dotOpt.node, status, closeBtn),
     replaceRow,
   )
   element.hidden = true
 
   let current = -1
 
-  const options = (): FindOptions => ({ caseSensitive: caseOpt.box.checked, regex: regexOpt.box.checked })
+  const options = (): FindOptions => ({
+    caseSensitive: caseOpt.box.checked,
+    regex: regexOpt.box.checked,
+    extended: extOpt.box.checked,
+    wholeWord: wordOpt.box.checked,
+    dotAll: dotOpt.box.checked,
+  })
+
+  // Normal / Extended / Regex are one choice in Notepad++: ticking one clears the other.
+  const resetSearch = (): void => {
+    current = -1
+    status.textContent = ''
+  }
+  extOpt.box.addEventListener('change', () => {
+    if (extOpt.box.checked) regexOpt.box.checked = false
+    dotOpt.node.hidden = !regexOpt.box.checked
+    resetSearch()
+  })
+  regexOpt.box.addEventListener('change', () => {
+    if (regexOpt.box.checked) extOpt.box.checked = false
+    dotOpt.node.hidden = !regexOpt.box.checked
+    resetSearch()
+  })
+  for (const opt of [caseOpt, wordOpt, dotOpt]) opt.box.addEventListener('change', resetSearch)
 
   function matches(): readonly Match[] | null {
     const result = findMatches(host.getText(), findInput.value, options())
@@ -128,6 +161,13 @@ export function createFindBar(host: FindHost): FindBar {
       step(ev.shiftKey ? -1 : 1)
     }
   })
+  replaceInput.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Enter') {
+      ev.preventDefault()
+      if (ev.ctrlKey || ev.metaKey) doReplaceAll()
+      else doReplaceOne()
+    }
+  })
   element.addEventListener('keydown', (ev) => {
     if (ev.key === 'Escape') {
       ev.stopPropagation()
@@ -140,7 +180,11 @@ export function createFindBar(host: FindHost): FindBar {
   replaceEvery.addEventListener('click', doReplaceAll)
   closeBtn.addEventListener('click', () => close())
 
-  function open(withReplace: boolean): void {
+  function open(withReplace: boolean, seed?: string): void {
+    if (seed && !seed.includes('\n')) {
+      findInput.value = seed
+      resetSearch()
+    }
     element.hidden = false
     replaceRow.hidden = !withReplace
     findInput.focus()

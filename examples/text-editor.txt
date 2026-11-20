@@ -1,0 +1,25 @@
+Text editor — try these (Notepad++ style)
+=========================================
+
+1) Extended replace: Ctrl+H, tick "\n", Find ",", Replace with "\n"
+   -> splits the list below into one item per line
+TC-001,TC-002,TC-003,TC-002,TC-004
+
+2) Column select: hold Alt and drag down the "|" column below,
+   then type — every line changes at once. Ctrl+C copies just the column.
+user01 | alice  | admin
+user02 | bob    | tester
+user03 | carol  | tester
+user04 | dave   | viewer
+
+3) Line tools (menu above): Remove duplicate lines / Remove blank lines / Sort
+TC-010 Login fails with wrong password
+
+TC-002 Login succeeds
+TC-010 Login fails with wrong password
+
+TC-001 Open login page
+
+Escapes in Extended mode:  \n newline  \r carriage return  \t tab  \0 NUL  \\ backslash
+                           \x41 hex  ก unicode  \o101 octal  \d065 decimal  \b01000001 binary
+Regex mode replace also understands \n \t and \1 \2 (or $1 $2) for groups.

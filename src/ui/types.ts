@@ -20,6 +20,8 @@ export interface TabController {
   commands?(): Command[]
   setDark?(dark: boolean): void
   open(file: OpenedFile): void
+  /** Take a file dropped onto `target` inside this tab (e.g. onto one side of a diff); false = not handled. */
+  acceptDrop?(file: OpenedFile, target: EventTarget | null): boolean
   snapshot(): DocSnapshot
   markSaved(name: string, handle: FileHandleLike | null): void
   isDirty(): boolean

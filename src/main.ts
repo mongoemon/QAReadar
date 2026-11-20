@@ -13,8 +13,10 @@ import { icon, iconButton, setIconButton, type IconName } from './ui/icons'
 import { createJsonTab } from './ui/jsonTab'
 import { createLocatorTab } from './ui/locatorTab'
 import { createMarkdownTab } from './ui/markdownTab'
+import { createMergeTab } from './ui/mergeTab'
 import { createPalette } from './ui/palette'
-import { STARTER_HTML, STARTER_JSON, STARTER_MARKDOWN } from './lib/samples'
+import { createTextTab } from './ui/textTab'
+import { STARTER_HTML, STARTER_JSON, STARTER_MARKDOWN, STARTER_MERGE, STARTER_TEXT } from './lib/samples'
 import { errorMessage, toast } from './ui/toast'
 import type { TabController } from './ui/types'
 
@@ -23,7 +25,11 @@ const THEME_KEY = 'mdreadar:theme'
 const root = document.getElementById('app')
 if (!root) throw new Error('#app container not found')
 
-const tabs: TabController[] = [createMarkdownTab(), createJsonTab(), createLocatorTab()]
+const markdownTab = createMarkdownTab()
+const jsonTab = createJsonTab()
+const locatorTab = createLocatorTab()
+// Text sits after Markdown, so .txt keeps opening in Markdown; logs, CSV, YAML… open here.
+const tabs: TabController[] = [markdownTab, createTextTab(STARTER_TEXT), jsonTab, locatorTab, createMergeTab(STARTER_MERGE)]
 let active: TabController = tabs[0]
 
 /** Kind used by the open picker and drag-drop: includes convertible extras, unlike save. */
@@ -42,7 +48,7 @@ const tabFor = (file: OpenedFile): TabController | undefined =>
   tabById(sniffKind(file.text))
 
 // ── chrome ────────────────────────────────────────────────────────────────
-const TAB_ICONS: Partial<Record<string, IconName>> = { markdown: 'fileText', json: 'braces', locator: 'crosshair' }
+const TAB_ICONS: Partial<Record<string, IconName>> = { markdown: 'fileText', json: 'braces', locator: 'crosshair', merge: 'gitCompare', text: 'notepad' }
 const tabButtons = new Map<TabController, HTMLButtonElement>()
 const tabList = el('div', { class: 'tabs', role: 'tablist' })
 for (const tab of tabs) {
@@ -320,18 +326,20 @@ window.addEventListener(
     if (!carriesFiles(ev) || !ev.dataTransfer) return
     ev.preventDefault()
     ev.stopPropagation()
-    openDropped(ev.dataTransfer)
+    openDropped(ev.dataTransfer, ev.target)
   },
   true,
 )
 // Anything else that reaches the window unhandled must not make the browser navigate away.
 window.addEventListener('drop', (ev) => ev.preventDefault())
 
-function openDropped(transfer: DataTransfer): void {
+function openDropped(transfer: DataTransfer, target: EventTarget | null): void {
   const dropped = collectDropped(transfer)
   void guarded(async () => {
     for (const { file, handle } of dropped) {
       const opened = await readFile(file, await handle)
+      // A tab may claim drops onto its own surface (the merge tab: onto Manual or Automate).
+      if (active.acceptDrop?.(opened, target)) continue
       const tab = tabFor(opened)
       if (!tab) {
         toast(t('msg.unsupported', { name: file.name }), true)
@@ -347,7 +355,7 @@ window.addEventListener('beforeunload', (ev) => {
 })
 
 // Starter documents: unsaved (no handle), so the first Save asks where to put them.
-for (const [tab, starter] of [[tabs[0], STARTER_MARKDOWN], [tabs[1], STARTER_JSON], [tabs[2], STARTER_HTML]] as const) {
+for (const [tab, starter] of [[markdownTab, STARTER_MARKDOWN], [jsonTab, STARTER_JSON], [locatorTab, STARTER_HTML]] as const) {
   tab.open({ name: starter.fileName, text: starter.text, handle: null, sample: true })
 }
 
