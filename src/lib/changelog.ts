@@ -14,6 +14,13 @@ export interface Release {
 
 export const CHANGELOG: readonly Release[] = [
   {
+    version: '1.5.1',
+    date: '2026-11-23',
+    fixed: [
+      'คำแนะนำคีย์ลัดบนแถบเครื่องมือแสดงคีย์ตามเครื่องที่ใช้: บน Mac แท็บ Text บอก ⌥⌘F สำหรับแทนที่ (เดิมบอก Ctrl+H ซึ่งใช้บน Mac ไม่ได้) และแท็บ Markdown / Diff & Merge แสดง ⌘ แทน Ctrl — ถ้าเปลี่ยนคีย์ลัด คำแนะนำจะเปลี่ยนตามทันที',
+    ],
+  },
+  {
     version: '1.5.0',
     date: '2026-11-23',
     added: [

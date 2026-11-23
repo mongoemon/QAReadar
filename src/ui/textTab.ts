@@ -32,7 +32,7 @@ import { extensionOf } from '../lib/fileKind'
 import { offsetToPos } from '../lib/findReplace'
 import { localized, t, type MessageKey } from '../lib/i18n'
 import { readStored, writeStored } from '../lib/safeStorage'
-import { shortcutLabel, withShortcuts } from '../lib/shortcuts'
+import { ALT_LABEL, keyHint, shortcutLabel, withShortcuts } from '../lib/shortcuts'
 import type { Starter } from '../lib/samples'
 import {
   applyTextTool,
@@ -1000,7 +1000,7 @@ function createTextPane(host: PaneHost): TextPane {
   localized(() => {
     input.setAttribute('aria-label', t('te.aria'))
     input.placeholder = t('te.placeholder')
-    hint.textContent = t('te.hint')
+    renderHint()
     renderTableBtn()
     renderWrapBtn()
     renderTools()
@@ -1068,8 +1068,14 @@ function createTextPane(host: PaneHost): TextPane {
     isDirty: () => set.docs.some(isDocDirty),
   }
 
+  /** Keys in the hint follow the platform (⌥ / ⌘ on a Mac) and any rebinding. */
+  function renderHint(): void {
+    hint.textContent = t('te.hint', { alt: ALT_LABEL, replace: keyHint('text.replace') })
+  }
+
   loadActive()
   withShortcuts(renderDocTabs)
+  withShortcuts(renderHint)
   return api
 }
 

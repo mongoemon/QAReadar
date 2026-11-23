@@ -282,6 +282,12 @@ export function shortcutLabel(id: string): string | undefined {
 }
 
 /** Run `update` now and after every change to the shortcuts. For long-lived UI only. */
+/** The shortcut for `id` as shown to the user, or a dash when it has none (for hint text). */
+export const keyHint = (id: string): string => shortcutLabel(id) ?? '—'
+
+/** The Alt / Option key as this platform names it (for "Alt+drag" style hints). */
+export const ALT_LABEL = PLATFORM === 'mac' ? '⌥' : 'Alt'
+
 export function withShortcuts(update: () => void): () => void {
   update()
   listeners.add(update)

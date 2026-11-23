@@ -48,7 +48,7 @@ import {
   type WidthPref,
 } from '../lib/readingPrefs'
 import { readStored, writeStored } from '../lib/safeStorage'
-import { shortcutLabel, withShortcuts } from '../lib/shortcuts'
+import { keyHint, shortcutLabel, withShortcuts } from '../lib/shortcuts'
 import { computeStats } from '../lib/textStats'
 import { el } from './dom'
 import { createFindBar } from './findBar'
@@ -670,17 +670,23 @@ export function createMarkdownTab(): TabController {
     else setIconButton(cleanBtn, 'book', t('md.readEditTip'), t('md.readEdit'))
   }
 
+  /** Keys in the hint follow the platform (⌘ on a Mac) and any rebinding. */
+  function renderHint(): void {
+    hint.textContent = t('md.hint', { palette: keyHint('view.palette'), find: keyHint('md.find'), focus: keyHint('view.focus') })
+  }
+
   applyPrefs()
   loadActive()
   void hydrate()
-  // Tab tooltips show the current shortcuts.
+  // Tab tooltips and the hint show the current shortcuts.
   withShortcuts(renderDocTabs)
+  withShortcuts(renderHint)
 
   // Static chrome and every piece of rendered text follow the UI language.
   localized(() => {
     diskWarn.title = t('md.diskWarnTip')
     diskWarnText.textContent = t('md.diskWarn')
-    hint.textContent = t('md.hint')
+    renderHint()
     docStrip.setAttribute('aria-label', t('md.docsAria'))
     outlineList.setAttribute('aria-label', t('md.outlineAria'))
     splitReset.title = t('md.splitReset')

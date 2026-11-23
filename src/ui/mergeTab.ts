@@ -19,6 +19,7 @@ import {
   type MergeRow,
 } from '../lib/lineMerge'
 import { readStored, writeStored } from '../lib/safeStorage'
+import { keyHint, withShortcuts } from '../lib/shortcuts'
 import type { Starter } from '../lib/samples'
 import { copyText } from './clipboard'
 import { el } from './dom'
@@ -554,12 +555,17 @@ export function createMergeTab(sample: { readonly manual: Starter; readonly auto
     colRight.textContent = t('mg.automate')
     colPick.textContent = t('mg.colPick')
     resultTitle.textContent = t('mg.result')
-    resultHint.textContent = t('mg.resultHint')
+    renderResultHint()
     output.setAttribute('aria-label', t('mg.resultAria'))
     renderSourcesBtn()
     // Rows carry localized tooltips and labels: rebuild them (picks are kept).
     recompute(true)
   })
+  // The Save key in the hint follows the platform (⌘S on a Mac) and any rebinding.
+  function renderResultHint(): void {
+    resultHint.textContent = t('mg.resultHint', { save: keyHint('file.save') })
+  }
+  withShortcuts(renderResultHint)
   savedText = merged
 
   function loadSample(): void {
