@@ -12,12 +12,27 @@ import {
   type BlockEdit,
 } from '../lib/columnSelection'
 import { TABLE_EXTENSIONS } from '../lib/csv'
-import type { FileHandleLike, FileKind, OpenedFile } from '../lib/fileAccess'
+import {
+  activeDoc,
+  addDoc,
+  closeDoc,
+  copyName,
+  createDocSet,
+  insertDocAfter,
+  isDocDirty,
+  markDocSaved,
+  replaceDoc,
+  setActive,
+  updateText,
+  type Doc,
+  type DocSet,
+} from '../lib/docSet'
+import type { DocSnapshot, FileHandleLike, FileKind, OpenedFile } from '../lib/fileAccess'
 import { extensionOf } from '../lib/fileKind'
 import { offsetToPos } from '../lib/findReplace'
 import { localized, t, type MessageKey } from '../lib/i18n'
 import { readStored, writeStored } from '../lib/safeStorage'
-import { shortcutLabel } from '../lib/shortcuts'
+import { shortcutLabel, withShortcuts } from '../lib/shortcuts'
 import type { Starter } from '../lib/samples'
 import {
   applyTextTool,
@@ -35,7 +50,8 @@ import {
 import { createCsvView } from './csvTable'
 import { el } from './dom'
 import { createFindBar } from './findBar'
-import { iconButton, setIconButton } from './icons'
+import { icon, iconButton, setIconButton } from './icons'
+import { showMenu, type MenuItem } from './menu'
 import { scrollOffsetIntoView } from './textareaScroll'
 import { toast } from './toast'
 import type { TabController } from './types'
@@ -75,14 +91,79 @@ interface Metrics {
   readonly padT: number
 }
 
-export function createTextTab(starter?: Starter): TabController {
-  const listeners: Array<() => void> = []
-  const notify = (): void => listeners.forEach((listener) => listener())
+/** Per-document editor state kept while another document tab is shown. */
+interface DocView {
+  readonly eol: Eol
+  readonly view: 'text' | 'table'
+  readonly selStart: number
+  readonly selEnd: number
+  readonly scrollTop: number
+  readonly scrollLeft: number
+}
 
-  let name = DEFAULT_NAME
-  let handle: FileHandleLike | null = null
+/** "Label (shortcut)" for a tooltip, or just the label when the command has no shortcut. */
+function withKey(label: string, id: string): string {
+  const key = shortcutLabel(id)
+  return key ? `${label} (${key})` : label
+}
+
+let docSeq = 0
+/** Doc text is stored as it would be saved: line endings already in the doc's own EOL. */
+const makeDoc = (name: string, text: string, handle: FileHandleLike | null, savedText: string = text): Doc => ({
+  id: `txt${++docSeq}`,
+  name,
+  text,
+  savedText,
+  handle,
+})
+
+/** At most this many editor splits side by side. */
+const MAX_SPLITS = 3
+
+/** A document moving between splits, with everything needed to show it the same way. */
+interface DocEntry {
+  readonly doc: Doc
+  readonly view: DocView | undefined
+  readonly ephemeral: boolean
+}
+
+/** What a split asks of the Text tab that holds it. */
+interface PaneHost {
+  focus(pane: TextPane): void
+  /** True when the split may disappear (it is not the last one). */
+  canRemove(pane: TextPane): boolean
+  remove(pane: TextPane): void
+  /** Extra items for a document tab's context menu (split / move). */
+  splitItems(pane: TextPane, docId: string): MenuItem[]
+  changed(): void
+}
+
+/** One editor split: its own document tabs, editor, find bar and status line. */
+interface TextPane {
+  readonly element: HTMLElement
+  commands(): Command[]
+  activeId(): string
+  docCount(): number
+  open(file: OpenedFile): void
+  /** Remove a document without asking (it is moving to another split). */
+  takeDoc(id: string): DocEntry | null
+  adopt(entry: DocEntry): void
+  snapshot(): DocSnapshot
+  markSaved(name: string, handle: FileHandleLike | null): void
+  isDirty(): boolean
+  focus(): void
+}
+
+function createTextPane(host: PaneHost): TextPane {
+  const notify = (): void => host.changed()
+
+  /** Docs not worth keeping a tab for while clean (blank new doc, untouched sample). */
+  const ephemeral = new Set<string>()
+  const views = new Map<string, DocView>()
+  const blank = makeDoc(DEFAULT_NAME, '', null)
+  ephemeral.add(blank.id)
+  let set: DocSet = createDocSet(blank)
   let eol: Eol = '\n'
-  let savedText = ''
   let wrap = readStored(WRAP_KEY) === 'on'
   let block: Block | null = null
   /** Current find hit, drawn on the overlay so it stays visible while the find box has focus. */
@@ -137,7 +218,7 @@ export function createTextTab(starter?: Starter): TabController {
 
   const csv = createCsvView({
     getText: () => input.value,
-    getFileName: () => name,
+    getFileName: () => activeDoc(set).name,
     replace(start, end, text) {
       // The textarea is hidden in table view, so write directly (the browser's undo can't follow).
       input.value = input.value.slice(0, start) + text + input.value.slice(end)
@@ -157,7 +238,8 @@ export function createTextTab(starter?: Starter): TabController {
   csv.controls.hidden = true
   bar.insertBefore(csv.controls, spacer)
 
-  const element = el('section', { class: 'pane te-pane' }, bar, findBar.element, editor, csv.element, status)
+  const docStrip = el('div', { class: 'doc-tabs', role: 'tablist' })
+  const element = el('section', { class: 'pane te-pane' }, bar, docStrip, findBar.element, editor, csv.element, status)
 
   // ── geometry (monospace font, wrap off) ──
   let charWidth = 0
@@ -358,6 +440,11 @@ export function createTextTab(starter?: Starter): TabController {
   }
 
   function afterChange(): void {
+    // Keep the doc model current so tab dots, isDirty and switching never lag behind.
+    const doc = activeDoc(set)
+    const wasDirty = isDocDirty(doc)
+    set = updateText(set, doc.id, withEol(input.value, eol))
+    if (isDocDirty(activeDoc(set)) !== wasDirty) renderDocTabs()
     if (view === 'table') csv.render()
     renderGutter()
     renderOverlay()
@@ -678,27 +765,237 @@ export function createTextTab(starter?: Starter): TabController {
     duplicateLines()
   }
 
-  function load(file: { readonly name: string; readonly text: string; readonly handle: FileHandleLike | null }): void {
-    name = file.name
-    handle = file.handle
-    eol = detectEol(file.text)
+  // ── documents (one tab per file) ──
+  /** Remember the shown document's text, cursor, scroll and view before showing another. */
+  function stash(): void {
+    const doc = activeDoc(set)
+    set = updateText(set, doc.id, withEol(input.value, eol))
+    views.set(doc.id, {
+      eol,
+      view,
+      selStart: input.selectionStart,
+      selEnd: input.selectionEnd,
+      scrollTop: input.scrollTop,
+      scrollLeft: input.scrollLeft,
+    })
+  }
+
+  /** Show the active document in the editor. */
+  function loadActive(): void {
+    const doc = activeDoc(set)
+    const saved = views.get(doc.id)
+    eol = saved?.eol ?? detectEol(doc.text)
     block = null
     hit = null
-    input.value = normalizeEol(file.text)
-    input.setSelectionRange(0, 0)
-    input.scrollTop = 0
-    input.scrollLeft = 0
-    savedText = withEol(input.value, eol)
+    findBar.close()
+    input.value = normalizeEol(doc.text)
     csv.reset()
-    // CSV / TSV open as a table; everything else as text.
-    const table = TABLE_EXTENSIONS.includes(extensionOf(name))
-    if (table !== (view === 'table')) setView(table ? 'table' : 'text')
+    // CSV / TSV open as a table; everything else as text. A doc seen before keeps its view.
+    const next = saved?.view ?? (TABLE_EXTENSIONS.includes(extensionOf(doc.name)) ? 'table' : 'text')
+    if (next !== view) setView(next)
+    const max = input.value.length
+    input.setSelectionRange(Math.min(saved?.selStart ?? 0, max), Math.min(saved?.selEnd ?? 0, max))
+    input.scrollTop = saved?.scrollTop ?? 0
+    input.scrollLeft = saved?.scrollLeft ?? 0
     afterChange()
+    renderDocTabs()
   }
+
+  /** A document as read from disk, with its line endings made consistent. */
+  function docFrom(file: { readonly name: string; readonly text: string; readonly handle: FileHandleLike | null }): Doc {
+    const text = withEol(normalizeEol(file.text), detectEol(file.text))
+    return makeDoc(file.name, text, file.handle)
+  }
+
+  /** The blank untitled doc you start with is replaced by the first file opened. */
+  const isReplaceable = (doc: Doc): boolean => !doc.handle && !isDocDirty(doc) && doc.name === DEFAULT_NAME && doc.text === ''
+
+  function openDoc(doc: Doc): void {
+    stash()
+    const current = activeDoc(set)
+    if (isReplaceable(current)) {
+      views.delete(current.id)
+      ephemeral.delete(current.id)
+      set = { ...replaceDoc(set, current.id, doc), activeId: doc.id }
+    } else {
+      set = addDoc(set, doc)
+    }
+    loadActive()
+  }
+
+  function switchTo(id: string): void {
+    if (id === set.activeId) return
+    stash()
+    set = setActive(set, id)
+    loadActive()
+  }
+
+  function newDocument(): void {
+    stash()
+    const doc = makeDoc(DEFAULT_NAME, '', null)
+    ephemeral.add(doc.id)
+    set = addDoc(set, doc)
+    loadActive()
+    input.focus()
+  }
+
+  function duplicateById(id: string): void {
+    stash()
+    const source = set.docs.find((d) => d.id === id)
+    if (!source) return
+    // A copy is a new, unsaved document: no file link, so Save asks where to put it.
+    const copy = makeDoc(copyName(source.name, set.docs.map((d) => d.name)), source.text, null, '')
+    const sourceView = views.get(id)
+    if (sourceView) views.set(copy.id, { ...sourceView, selStart: 0, selEnd: 0, scrollTop: 0, scrollLeft: 0 })
+    set = insertDocAfter(set, id, copy)
+    loadActive()
+    input.focus()
+  }
+
+  function forget(id: string): void {
+    views.delete(id)
+    ephemeral.delete(id)
+  }
+
+  function closeById(id: string): void {
+    stash()
+    const doc = set.docs.find((d) => d.id === id)
+    if (!doc) return
+    if (isDocDirty(doc) && !window.confirm(t('md.confirmClose', { name: doc.name }))) return
+    // Closing the last tab of a split closes the split (unless it is the only one).
+    if (set.docs.length === 1 && host.canRemove(api)) {
+      host.remove(api)
+      return
+    }
+    const wasActive = id === set.activeId
+    set = closeDoc(set, id, () => {
+      const fresh = makeDoc(DEFAULT_NAME, '', null)
+      ephemeral.add(fresh.id)
+      return fresh
+    })
+    forget(id)
+    if (wasActive || set.docs.length === 1) loadActive()
+    else renderDocTabs()
+    notify()
+  }
+
+  function closeOthers(id: string): void {
+    stash()
+    const dirty = set.docs.filter((d) => d.id !== id && isDocDirty(d))
+    if (dirty.length > 0 && !window.confirm(t('md.confirmCloseOthers', { n: dirty.length }))) return
+    for (const doc of set.docs) if (doc.id !== id) forget(doc.id)
+    const wasActive = id === set.activeId
+    set = { docs: set.docs.filter((d) => d.id === id), activeId: id }
+    if (wasActive) renderDocTabs()
+    else loadActive()
+    notify()
+  }
+
+  /** Move to the next (+1) or previous (-1) document tab, wrapping around. */
+  function cycleDoc(step: number): void {
+    const index = set.docs.findIndex((d) => d.id === set.activeId)
+    const next = set.docs[(index + step + set.docs.length) % set.docs.length]
+    if (next) switchTo(next.id)
+  }
+
+  function showDocMenu(id: string, at: HTMLElement | { x: number; y: number }): void {
+    const others = set.docs.filter((d) => d.id !== id)
+    showMenu(
+      [
+        { label: t('md.newDoc'), icon: 'plus', hint: shortcutLabel('text.new'), run: newDocument },
+        { label: t('md.duplicateDoc'), icon: 'duplicate', hint: shortcutLabel('text.duplicateDoc'), run: () => duplicateById(id) },
+        { label: t('md.closeTip'), icon: 'close', hint: shortcutLabel('text.close'), run: () => closeById(id) },
+        { label: t('md.closeOthers'), disabled: others.length === 0, run: () => closeOthers(id) },
+        ...host.splitItems(api, id),
+      ],
+      at,
+      t('md.docMenuAria'),
+    )
+  }
+
+  function takeDoc(id: string): DocEntry | null {
+    stash()
+    const doc = set.docs.find((d) => d.id === id)
+    if (!doc) return null
+    const entry: DocEntry = { doc, view: views.get(id), ephemeral: ephemeral.has(id) }
+    if (set.docs.length === 1 && host.canRemove(api)) {
+      host.remove(api)
+      return entry
+    }
+    const wasActive = id === set.activeId
+    set = closeDoc(set, id, () => {
+      const fresh = makeDoc(DEFAULT_NAME, '', null)
+      ephemeral.add(fresh.id)
+      return fresh
+    })
+    forget(id)
+    if (wasActive || set.docs.length === 1) loadActive()
+    else renderDocTabs()
+    return entry
+  }
+
+  function adopt(entry: DocEntry): void {
+    if (entry.ephemeral) ephemeral.add(entry.doc.id)
+    if (entry.view) views.set(entry.doc.id, entry.view)
+    openDoc(entry.doc)
+  }
+
+  function renderDocTabs(): void {
+    const addBtn = el('button', { class: 'doc-add', type: 'button', 'aria-label': t('md.newDoc'), title: withKey(t('md.newDoc'), 'text.new') }, icon('plus', 14))
+    addBtn.addEventListener('click', newDocument)
+    docStrip.replaceChildren(
+      ...set.docs.map((doc) => {
+        const selected = doc.id === set.activeId
+        const tab = el(
+          'button',
+          { class: 'doc-tab', role: 'tab', type: 'button', 'aria-selected': String(selected), title: doc.name },
+          isDocDirty(doc) ? '● ' : '',
+          doc.name,
+        )
+        tab.addEventListener('click', () => switchTo(doc.id))
+        const close = el('button', { class: 'doc-close', type: 'button', 'aria-label': t('md.closeDoc', { name: doc.name }), title: withKey(t('md.closeTip'), 'text.close') }, icon('close', 12))
+        close.addEventListener('click', () => closeById(doc.id))
+        const item = el('span', { class: selected ? 'doc-item active' : 'doc-item' }, tab, close)
+        item.addEventListener('contextmenu', (ev) => {
+          ev.preventDefault()
+          ev.stopPropagation()
+          switchTo(doc.id)
+          showDocMenu(doc.id, { x: ev.clientX, y: ev.clientY })
+        })
+        // Shift+F10 / the context-menu key on a focused tab opens the same menu.
+        tab.addEventListener('keydown', (ev) => {
+          if (ev.key !== 'ContextMenu' && !(ev.shiftKey && ev.key === 'F10')) return
+          ev.preventDefault()
+          switchTo(doc.id)
+          showDocMenu(doc.id, tab)
+        })
+        // Middle-click closes, as in a browser.
+        item.addEventListener('auxclick', (ev) => {
+          if (ev.button !== 1) return
+          ev.preventDefault()
+          closeById(doc.id)
+        })
+        return item
+      }),
+      addBtn,
+    )
+  }
+
+  // Right-click on the empty part of the tab strip: just "New document".
+  docStrip.addEventListener('contextmenu', (ev) => {
+    ev.preventDefault()
+    showMenu([{ label: t('md.newDoc'), icon: 'plus', hint: shortcutLabel('text.new'), run: newDocument }], { x: ev.clientX, y: ev.clientY })
+  })
+  // Double-click the empty part of the strip: new document.
+  docStrip.addEventListener('dblclick', (ev) => {
+    if (ev.target === docStrip) newDocument()
+  })
 
   input.wrap = wrap ? 'soft' : 'off'
   editor.classList.toggle('te-wrap', wrap)
-  if (starter) load({ name: starter.fileName, text: starter.text, handle: null })
+  // Whichever split you click or type in becomes the one the toolbar, Save and Open act on.
+  element.addEventListener('focusin', () => host.focus(api))
+  element.addEventListener('pointerdown', () => host.focus(api))
 
   localized(() => {
     input.setAttribute('aria-label', t('te.aria'))
@@ -707,6 +1004,8 @@ export function createTextTab(starter?: Starter): TabController {
     renderTableBtn()
     renderWrapBtn()
     renderTools()
+    docStrip.setAttribute('aria-label', t('md.docsAria'))
+    renderDocTabs()
     refreshStatus()
   })
 
@@ -718,12 +1017,167 @@ export function createTextTab(starter?: Starter): TabController {
     { id: 'text.table', title: t('te.cmd.table'), run: () => setView(view === 'table' ? 'text' : 'table') },
     { id: 'text.wrap', title: t('te.cmd.wrap'), run: () => setWrap(!wrap) },
     { id: 'text.eol', title: t('te.cmd.eol'), run: cycleEol },
-    { id: 'text.new', title: t('te.cmd.new'), run: () => load({ name: DEFAULT_NAME, text: '', handle: null }) },
+    { id: 'text.new', title: t('te.cmd.new'), run: newDocument },
+    { id: 'text.duplicateDoc', title: t('te.cmd.duplicateDoc'), run: () => duplicateById(set.activeId) },
+    { id: 'text.close', title: t('te.cmd.close'), run: () => closeById(set.activeId) },
+    { id: 'text.nextDoc', title: t('te.cmd.nextDoc'), run: () => cycleDoc(1) },
+    { id: 'text.prevDoc', title: t('te.cmd.prevDoc'), run: () => cycleDoc(-1) },
     ...TEXT_TOOLS.map((id): Command => ({
       id: `text.tool.${id}`,
       title: t('te.cmd.tool', { tool: t(toolKey(id)) }),
       run: () => runTool(id),
     })),
+  ]
+
+  const api: TextPane = {
+    element,
+    commands,
+    activeId: () => set.activeId,
+    docCount: () => set.docs.length,
+    takeDoc,
+    adopt,
+    focus(): void {
+      if (view === 'table') csv.element.focus()
+      else input.focus({ preventScroll: true })
+    },
+    open(file: OpenedFile): void {
+      if (file.sample) {
+        // The same sample opened again (and untouched): just bring its tab forward.
+        const existing = set.docs.find((d) => ephemeral.has(d.id) && !d.handle && !isDocDirty(d) && d.name === file.name)
+        if (existing) {
+          switchTo(existing.id)
+          return
+        }
+      }
+      const doc = docFrom(file)
+      if (file.sample) ephemeral.add(doc.id)
+      openDoc(doc)
+    },
+    snapshot() {
+      const current = activeDoc(set)
+      return { name: current.name, text: withEol(input.value, eol), handle: current.handle }
+    },
+    markSaved(savedName: string, savedHandle: FileHandleLike | null): void {
+      const id = set.activeId
+      const text = withEol(input.value, eol)
+      set = markDocSaved(updateText(set, id, text), id, savedName, savedHandle, text)
+      ephemeral.delete(id)
+      renderDocTabs()
+      notify()
+    },
+    isDirty: () => set.docs.some(isDocDirty),
+  }
+
+  loadActive()
+  withShortcuts(renderDocTabs)
+  return api
+}
+
+/**
+ * The Text tab: one to three editor splits side by side, each with its own document tabs.
+ * Right-click a document tab to move it to a new split or another split; closing the last
+ * tab of a split removes that split.
+ */
+export function createTextTab(starter?: Starter): TabController {
+  const listeners: Array<() => void> = []
+  const notify = (): void => listeners.forEach((listener) => listener())
+  const panes: TextPane[] = []
+  const element = el('section', { class: 'te-splits' })
+
+  const host: PaneHost = {
+    focus(pane) {
+      if (pane === active) return
+      active = pane
+      renderSplits()
+      notify()
+    },
+    canRemove: () => panes.length > 1,
+    remove(pane) {
+      const index = panes.indexOf(pane)
+      if (index === -1) return
+      panes.splice(index, 1)
+      pane.element.remove()
+      if (active === pane) active = panes[Math.min(index, panes.length - 1)]
+      renderSplits()
+      active.focus()
+      notify()
+    },
+    splitItems(pane, docId) {
+      const items: MenuItem[] = []
+      if (panes.length < MAX_SPLITS) {
+        items.push(
+          { label: t('te.split.move'), icon: 'columns', disabled: pane.docCount() < 2, run: () => moveDoc(pane, docId, null) },
+          { label: t('te.split.new'), icon: 'plus', run: () => newSplit(pane) },
+        )
+      }
+      panes.forEach((other, index) => {
+        if (other !== pane) items.push({ label: t('te.split.moveTo', { n: index + 1 }), run: () => moveDoc(pane, docId, other) })
+      })
+      return items
+    },
+    changed: notify,
+  }
+
+  function addPane(after: TextPane | null): TextPane {
+    const pane = createTextPane(host)
+    const index = after ? panes.indexOf(after) + 1 : panes.length
+    panes.splice(index, 0, pane)
+    const next = panes[index + 1]
+    element.insertBefore(pane.element, next ? next.element : null)
+    return pane
+  }
+
+  let active: TextPane = addPane(null)
+
+  function renderSplits(): void {
+    element.classList.toggle('te-multi', panes.length > 1)
+    panes.forEach((pane, index) => {
+      pane.element.classList.toggle('te-active-split', pane === active)
+      pane.element.dataset.split = String(index + 1)
+    })
+  }
+
+  function activate(pane: TextPane): void {
+    active = pane
+    renderSplits()
+    pane.focus()
+    notify()
+  }
+
+  /** Move a document to `target`, or to a new split right of `from` when target is null. */
+  function moveDoc(from: TextPane, docId: string, target: TextPane | null): void {
+    if (!target && panes.length >= MAX_SPLITS) {
+      toast(t('te.split.max', { n: MAX_SPLITS }), true)
+      return
+    }
+    // Create the new split first: taking the last tab may remove `from`.
+    const to = target ?? addPane(from)
+    const entry = from.takeDoc(docId)
+    if (entry) to.adopt(entry)
+    activate(to)
+  }
+
+  function newSplit(from: TextPane): void {
+    if (panes.length >= MAX_SPLITS) {
+      toast(t('te.split.max', { n: MAX_SPLITS }), true)
+      return
+    }
+    activate(addPane(from))
+  }
+
+  function cycleSplit(step: number): void {
+    const index = panes.indexOf(active)
+    activate(panes[(index + step + panes.length) % panes.length])
+  }
+
+  renderSplits()
+  if (starter) active.open({ name: starter.fileName, text: starter.text, handle: null, sample: true })
+
+  const commands = (): Command[] => [
+    ...active.commands(),
+    { id: 'text.split', title: t('te.cmd.split'), run: () => moveDoc(active, active.activeId(), null) },
+    { id: 'text.splitNew', title: t('te.cmd.splitNew'), run: () => newSplit(active) },
+    { id: 'text.nextSplit', title: t('te.cmd.nextSplit'), run: () => cycleSplit(1) },
   ]
 
   return {
@@ -732,19 +1186,13 @@ export function createTextTab(starter?: Starter): TabController {
       return t('tab.text')
     },
     kind: KIND,
+    multiDoc: true,
     element,
     commands,
-    open(file: OpenedFile): void {
-      load(file)
-    },
-    snapshot: () => ({ name, text: withEol(input.value, eol), handle }),
-    markSaved(savedName: string, savedHandle: FileHandleLike | null): void {
-      name = savedName
-      handle = savedHandle
-      savedText = withEol(input.value, eol)
-      notify()
-    },
-    isDirty: () => withEol(input.value, eol) !== savedText,
+    open: (file) => active.open(file),
+    snapshot: () => active.snapshot(),
+    markSaved: (name, handle) => active.markSaved(name, handle),
+    isDirty: () => panes.some((pane) => pane.isDirty()),
     onChange(listener: () => void): void {
       listeners.push(listener)
     },

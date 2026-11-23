@@ -2,7 +2,7 @@
   "name": "qareadar",
   "productName": "QAReadar",
   "private": true,
-  "version": "1.4.0",
+  "version": "1.5.0",
   "description": "QAReadar — Markdown, JSON Path & Locator toolkit",
   "author": "mongoemon",
   "type": "module",

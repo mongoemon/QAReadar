@@ -161,6 +161,10 @@ export const DEFAULT_SHORTCUTS: Readonly<Record<string, DefaultSpec>> = {
   'md.print': 'Mod+P',
   // Text
   'text.new': 'Alt+N',
+  'text.close': 'Alt+W',
+  'text.duplicateDoc': 'Alt+D',
+  'text.nextDoc': 'Alt+]',
+  'text.prevDoc': 'Alt+[',
   'text.find': 'Mod+F',
   'text.replace': { mac: 'Mod+Alt+F', other: 'Mod+H' },
   'text.goto': 'Mod+G',
