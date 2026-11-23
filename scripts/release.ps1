@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-  QAReadar release: bump version -> changelog -> test + build -> commit -> push -> deploy.
+  QAReadar release: bump version -> changelog -> test + build -> commit -> push -> deploy -> desktop installers -> GitHub Release.
 
 .DESCRIPTION
   Thin PowerShell wrapper around scripts/release.mjs (the logic lives there so it also
@@ -24,6 +24,7 @@ param(
 
   [switch]$NoPush,
   [switch]$NoDeploy,
+  [switch]$NoDesktop,
   [switch]$DryRun
 )
 
@@ -39,6 +40,7 @@ $nodeArgs = @($script, $Bump)
 if ($Message -ne '') { $nodeArgs += $Message }
 if ($NoPush) { $nodeArgs += '--no-push' }
 if ($NoDeploy) { $nodeArgs += '--no-deploy' }
+if ($NoDesktop) { $nodeArgs += '--no-desktop' }
 if ($DryRun) { $nodeArgs += '--dry-run' }
 
 & node @nodeArgs

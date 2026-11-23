@@ -4,9 +4,11 @@
 
 ```
 เพิ่มเลขเวอร์ชัน → เพิ่ม changelog → รันเทสต์ + build → commit → push → deploy
+→ build แอป Desktop (Mac/Windows) → สร้าง GitHub Release พร้อมไฟล์ติดตั้ง
 ```
 
 เว็บที่ deploy แล้วอยู่ที่ **https://qareadar.pages.dev** (Cloudflare Pages, project `qareadar`)
+ไฟล์ติดตั้ง Desktop อยู่ที่ **https://github.com/mongoemon/QAReadar/releases**
 
 ---
 
@@ -18,6 +20,7 @@
 | Git ที่ push ขึ้น GitHub ได้ | `git push` ใช้ได้ปกติ | ตั้งค่า SSH key หรือ GitHub CLI (`gh auth login`) |
 | แพ็กเกจของโปรเจกต์ | มีโฟลเดอร์ `node_modules` | `npm install` |
 | login Cloudflare | `npx wrangler whoami` แสดงอีเมล | `npx wrangler login` (เปิดเบราว์เซอร์ให้กดอนุญาต) |
+| GitHub CLI (สำหรับ GitHub Release) | `gh auth status` ขึ้น Logged in | ติดตั้งจาก https://cli.github.com แล้ว `gh auth login` |
 
 **Windows / PowerShell**: ถ้ารัน `.ps1` แล้วขึ้นว่า *running scripts is disabled* ให้รันครั้งเดียว:
 
@@ -42,7 +45,7 @@ npm run release -- <ประเภท> "<ข้อความ commit>" [ตั
 **Windows PowerShell**
 
 ```powershell
-.\scripts\release.ps1 <ประเภท> "<ข้อความ commit>" [-NoPush] [-NoDeploy] [-DryRun]
+.\scripts\release.ps1 <ประเภท> "<ข้อความ commit>" [-NoPush] [-NoDeploy] [-NoDesktop] [-DryRun]
 ```
 
 ### ประเภท (เลขเวอร์ชัน)
@@ -64,6 +67,7 @@ npm run release -- <ประเภท> "<ข้อความ commit>" [ตั
 | `--dry-run` | `-DryRun` | แสดงว่าจะทำอะไร **โดยไม่แก้อะไรจริง** ใช้เช็กก่อนรันจริง |
 | `--no-push` | `-NoPush` | commit ในเครื่องอย่างเดียว ไม่ push |
 | `--no-deploy` | `-NoDeploy` | ไม่ deploy ขึ้นเว็บ |
+| `--no-desktop` | `-NoDesktop` | ไม่ build แอป Desktop และไม่สร้าง GitHub Release |
 
 ### ตัวอย่าง
 
@@ -98,7 +102,16 @@ npm run deploy
    - ถ้าไม่มีอะไรเปลี่ยน จะข้ามขั้นนี้
 6. **Push** ขึ้น GitHub (branch ปัจจุบัน)
 7. **Deploy** โฟลเดอร์ `dist/` ขึ้น Cloudflare Pages
-8. ขึ้น `✔ Released vX.Y.Z → https://qareadar.pages.dev` เมื่อเสร็จ
+8. **Build แอป Desktop** ลงโฟลเดอร์ `release/` (ทำเฉพาะตอนเลขเวอร์ชันเปลี่ยน)
+   - บน Mac ได้ทั้ง `.dmg` (Apple Silicon + Intel) และ `.exe` ของ Windows
+   - บน Windows / Linux ได้เฉพาะ `.exe` ของ Windows
+9. **สร้าง GitHub Release** `vX.Y.Z` แล้วอัปโหลดไฟล์ `.dmg` / `.exe` ของเวอร์ชันนี้
+   - release notes สร้างจาก changelog ของเวอร์ชันนั้น พร้อมตารางดาวน์โหลดและวิธีเปิดครั้งแรก
+   - ถ้ามี release ของเวอร์ชันนี้อยู่แล้ว จะอัปโหลดไฟล์ทับแทน
+   - ข้ามขั้นนี้ถ้าใช้ `--no-push`
+10. ขึ้น `✔ Released vX.Y.Z → https://qareadar.pages.dev` เมื่อเสร็จ
+
+> ถ้า build Desktop หรือ GitHub Release ล้ม เว็บจะ deploy ไปแล้ว สคริปต์จะบอกคำสั่งที่ใช้ลองใหม่เฉพาะขั้นนั้น
 
 > ⚠️ ขั้น commit ใช้ `git add -A` คือ **ทุกไฟล์ที่เปลี่ยน** จะเข้า commit ด้วย
 > ควรดู `git status` ก่อนรัน ถ้ามีไฟล์ที่ยังไม่อยากส่ง ให้ย้ายออกหรือ `git stash` ไว้ก่อน
@@ -196,6 +209,8 @@ export const CHANGELOG: readonly Release[] = [
 | `npm run dist:mac` | `QAReadar-<ver>-mac-arm64.dmg` (Apple Silicon), `QAReadar-<ver>-mac-x64.dmg` (Intel) และ `.zip` |
 | `npm run dist:win` | `QAReadar-Setup-<ver>.exe` (ตัวติดตั้ง), `QAReadar-<ver>-portable.exe` (ดับเบิลคลิกใช้ได้เลย) |
 | `npm run dist:all` | ทั้งสองแบบ (build Windows จาก Mac ได้ ไม่ต้องลง Wine) |
+
+ปกติไม่ต้องรันคำสั่งพวกนี้เอง เพราะ `npm run release` จะ build และอัปโหลดขึ้น GitHub Release ให้ทุกครั้งที่เวอร์ชันเปลี่ยน (ดูหัวข้อ 3)
 
 ไฟล์ยังไม่ได้ sign ดังนั้นตอนเปิดครั้งแรก:
 
