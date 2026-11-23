@@ -4,6 +4,7 @@ import { el } from './dom'
 
 export interface Palette {
   open(initialQuery?: string): void
+  isOpen(): boolean
 }
 
 /** Ctrl+K command palette: fuzzy filter, arrow keys to move, Enter to run, Esc to close. */
@@ -97,6 +98,7 @@ export function createPalette(getCommands: () => Command[]): Palette {
   })
 
   return {
+    isOpen: () => !backdrop.hidden,
     open(initialQuery = ''): void {
       returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
       input.value = initialQuery

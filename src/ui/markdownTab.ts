@@ -8,7 +8,9 @@ import {
   activeDoc,
   addDoc,
   closeDoc,
+  copyName,
   createDocSet,
+  insertDocAfter,
   isDocDirty,
   markDocSaved,
   parseDrafts,
@@ -46,9 +48,11 @@ import {
   type WidthPref,
 } from '../lib/readingPrefs'
 import { readStored, writeStored } from '../lib/safeStorage'
+import { shortcutLabel, withShortcuts } from '../lib/shortcuts'
 import { computeStats } from '../lib/textStats'
 import { el } from './dom'
 import { createFindBar } from './findBar'
+import { showMenu } from './menu'
 import { toast } from './toast'
 import type { TabController } from './types'
 
@@ -66,22 +70,11 @@ const KIND: FileKind = {
   extensions: ['md', 'markdown', 'txt'],
 }
 
-const STARTER = `# QAReadar
-
-เปิดไฟล์ \`.md\` ด้วยปุ่ม **Open** (หรือลากไฟล์มาวางในหน้านี้) แล้วแก้ไขได้ทันที
-
-- ปุ่ม **Read & edit** เปลี่ยนเป็นมุมมองอ่านที่แก้ไขได้ในตัว (ไม่ต้องสลับกลับ)
-- **Ctrl+K** เปิด command palette, **Ctrl+F / Ctrl+H** ค้นหา/แทนที่
-- แท็บ **JSON Path** ใช้หา path ของค่าใน JSON
-
-| feature | status |
-| ------- | ------ |
-| GFM table | ok |
-| task list | ok |
-
-- [x] เปิดไฟล์
-- [ ] แก้ไขและบันทึก
-`
+/** "Label (shortcut)" for a tooltip, or just the label when the command has no shortcut. */
+function withKey(label: string, id: string): string {
+  const key = shortcutLabel(id)
+  return key ? `${label} (${key})` : label
+}
 
 let docSeq = 0
 const makeDoc = (
@@ -144,9 +137,10 @@ export function createMarkdownTab(): TabController {
   function restoreSet(): DocSet {
     const drafts = parseDrafts(readStored(DRAFT_KEY))
     if (drafts.length === 0) {
-      const starter = makeDoc(DEFAULT_NAME, STARTER, null)
-      ephemeral.add(starter.id)
-      return createDocSet(starter)
+      // First launch starts blank; samples are one click away in the top bar.
+      const blank = makeDoc(DEFAULT_NAME, '', null)
+      ephemeral.add(blank.id)
+      return createDocSet(blank)
     }
     const docs = drafts.map((d) => makeDoc(d.name, d.text, null, ''))
     docs.forEach((d) => legacy.add(d.id))
@@ -164,7 +158,7 @@ export function createMarkdownTab(): TabController {
 
   // ── chrome ──
   const outlineBtn = iconButton('outline', () => t('md.outline'), { variant: 'ghost', attrs: { 'aria-pressed': 'false' } })
-  const findBtn = iconButton('search', () => t('md.find'), { variant: 'ghost', shortcut: 'Ctrl+F' })
+  const findBtn = iconButton('search', () => t('md.find'), { variant: 'ghost', shortcut: () => shortcutLabel('md.find') })
   const cleanBtn = iconButton('book', '', { variant: 'ghost', text: ' ', attrs: { 'aria-pressed': 'false' } })
   const smallerBtn = iconButton('textSmaller', () => t('md.smaller'), { variant: 'ghost' })
   const largerBtn = iconButton('textLarger', () => t('md.larger'), { variant: 'ghost' })
@@ -385,7 +379,7 @@ export function createMarkdownTab(): TabController {
 
   function renderDocTabs(): void {
     renderDiskStatus()
-    const addBtn = el('button', { class: 'doc-add', type: 'button', 'aria-label': t('md.newDoc'), title: t('md.newDoc') }, icon('plus', 14))
+    const addBtn = el('button', { class: 'doc-add', type: 'button', 'aria-label': t('md.newDoc'), title: withKey(t('md.newDoc'), 'md.new') }, icon('plus', 14))
     addBtn.addEventListener('click', newDocument)
     docStrip.replaceChildren(
       ...set.docs.map((doc) => {
@@ -405,9 +399,23 @@ export function createMarkdownTab(): TabController {
           doc.name,
         )
         tab.addEventListener('click', () => switchTo(doc.id))
-        const close = el('button', { class: 'doc-close', type: 'button', 'aria-label': t('md.closeDoc', { name: doc.name }), title: t('md.closeTip') }, icon('close', 12))
+        const close = el('button', { class: 'doc-close', type: 'button', 'aria-label': t('md.closeDoc', { name: doc.name }), title: withKey(t('md.closeTip'), 'md.close') }, icon('close', 12))
         close.addEventListener('click', () => closeById(doc.id))
-        return el('span', { class: selected ? 'doc-item active' : 'doc-item' }, tab, close)
+        const item = el('span', { class: selected ? 'doc-item active' : 'doc-item' }, tab, close)
+        item.addEventListener('contextmenu', (ev) => {
+          ev.preventDefault()
+          ev.stopPropagation()
+          switchTo(doc.id)
+          showDocMenu(doc.id, { x: ev.clientX, y: ev.clientY })
+        })
+        // Shift+F10 / the context-menu key on a focused tab opens the same menu.
+        tab.addEventListener('keydown', (ev) => {
+          if (ev.key !== 'ContextMenu' && !(ev.shiftKey && ev.key === 'F10')) return
+          ev.preventDefault()
+          switchTo(doc.id)
+          showDocMenu(doc.id, tab)
+        })
+        return item
       }),
       addBtn,
     )
@@ -462,6 +470,51 @@ export function createMarkdownTab(): TabController {
     set = addDoc(set, doc)
     loadActive()
     editor.focus()
+  }
+
+  function duplicateById(id: string): void {
+    const source = set.docs.find((d) => d.id === id)
+    if (!source) return
+    // Take the live editor text for the active doc (the debounced update may not have run yet).
+    const text = id === set.activeId ? editor.getMarkdown() : source.text
+    // A copy is a new, unsaved document: no file link, so Save asks where to put it.
+    const copy = makeDoc(copyName(source.name, set.docs.map((d) => d.name)), text, null, '')
+    set = insertDocAfter(set, id, copy)
+    loadActive()
+    editor.focus()
+  }
+
+  function showDocMenu(id: string, at: HTMLElement | { x: number; y: number }): void {
+    const others = set.docs.filter((d) => d.id !== id)
+    showMenu(
+      [
+        { label: t('md.newDoc'), icon: 'plus', hint: shortcutLabel('md.new'), run: newDocument },
+        { label: t('md.duplicateDoc'), icon: 'duplicate', hint: shortcutLabel('md.duplicate'), run: () => duplicateById(id) },
+        { label: t('md.closeTip'), icon: 'close', hint: shortcutLabel('md.close'), run: () => closeById(id) },
+        { label: t('md.closeOthers'), disabled: others.length === 0, run: () => closeOthers(id) },
+      ],
+      at,
+      t('md.docMenuAria'),
+    )
+  }
+
+  function closeOthers(id: string): void {
+    const dirty = set.docs.filter((d) => d.id !== id && isDocDirty(d))
+    if (dirty.length > 0 && !window.confirm(t('md.confirmCloseOthers', { n: dirty.length }))) return
+    for (const doc of set.docs) {
+      if (doc.id === id) continue
+      stamps.delete(doc.id)
+      diskState.delete(doc.id)
+    }
+    set = { docs: set.docs.filter((d) => d.id === id), activeId: id }
+    loadActive()
+  }
+
+  /** Move to the next (+1) or previous (-1) document tab, wrapping around. */
+  function cycleDoc(step: number): void {
+    const index = set.docs.findIndex((d) => d.id === set.activeId)
+    const next = set.docs[(index + step + set.docs.length) % set.docs.length]
+    if (next) switchTo(next.id)
   }
 
   function closeById(id: string): void {
@@ -591,6 +644,11 @@ export function createMarkdownTab(): TabController {
   smallerBtn.addEventListener('click', () => adjustFont(-1))
   largerBtn.addEventListener('click', () => adjustFont(1))
   widthBtn.addEventListener('click', cycleColumnWidth)
+  // Right-click on the empty part of the tab strip: just "New document".
+  docStrip.addEventListener('contextmenu', (ev) => {
+    ev.preventDefault()
+    showMenu([{ label: t('md.newDoc'), icon: 'plus', hint: shortcutLabel('md.new'), run: newDocument }], { x: ev.clientX, y: ev.clientY })
+  })
   refreshBtn.addEventListener('click', () => void refreshFromDisk().catch((e) => toast(String(e), true)))
   // Re-check files when the user comes back from another app (where they may have edited them).
   window.addEventListener('focus', () => void checkDisk())
@@ -602,19 +660,6 @@ export function createMarkdownTab(): TabController {
     window.clearTimeout(sideTimer)
     persistDrafts()
   })
-  element.addEventListener(
-    'keydown',
-    (ev) => {
-      if (!(ev.ctrlKey || ev.metaKey) || ev.altKey) return
-      const key = ev.key.toLowerCase()
-      if (key === 'f' || key === 'h') {
-        ev.preventDefault()
-        ev.stopPropagation()
-        findBar.open(key === 'h')
-      }
-    },
-    true,
-  )
 
   function renderWidthBtn(): void {
     setIconButton(widthBtn, WIDTH_ICONS[width], t('md.width', { w: t(`width.${width}`) }))
@@ -628,6 +673,8 @@ export function createMarkdownTab(): TabController {
   applyPrefs()
   loadActive()
   void hydrate()
+  // Tab tooltips show the current shortcuts.
+  withShortcuts(renderDocTabs)
 
   // Static chrome and every piece of rendered text follow the UI language.
   localized(() => {
@@ -650,10 +697,13 @@ export function createMarkdownTab(): TabController {
     { id: 'md.refresh', title: t('md.cmd.refresh'), run: () => void refreshFromDisk().catch((e) => toast(String(e), true)) },
     { id: 'md.clean', title: t('md.cmd.clean'), run: () => setClean(!clean) },
     { id: 'md.outline', title: t('md.cmd.outline'), run: () => setOutlineVisible(Boolean(outline.hidden)) },
-    { id: 'md.find', title: t('md.cmd.find'), hint: 'Ctrl+F', run: () => findBar.open(false) },
-    { id: 'md.replace', title: t('md.cmd.replace'), hint: 'Ctrl+H', run: () => findBar.open(true) },
+    { id: 'md.find', title: t('md.cmd.find'), run: () => findBar.open(false) },
+    { id: 'md.replace', title: t('md.cmd.replace'), run: () => findBar.open(true) },
     { id: 'md.new', title: t('md.cmd.new'), run: newDocument },
+    { id: 'md.duplicate', title: t('md.cmd.duplicate'), run: () => duplicateById(set.activeId) },
     { id: 'md.close', title: t('md.cmd.close'), run: () => closeById(set.activeId) },
+    { id: 'md.nextDoc', title: t('md.cmd.nextDoc'), run: () => cycleDoc(1) },
+    { id: 'md.prevDoc', title: t('md.cmd.prevDoc'), run: () => cycleDoc(-1) },
     { id: 'md.export', title: t('md.cmd.export'), run: exportHtml },
     { id: 'md.copy', title: t('md.cmd.copy'), run: () => void copyAsHtml() },
     { id: 'md.print', title: t('md.cmd.print'), run: () => printHtml(htmlDocument()) },
@@ -678,6 +728,14 @@ export function createMarkdownTab(): TabController {
         .forEach((node) => node.classList.toggle('toastui-editor-dark', isDark))
     },
     open(file: OpenedFile): void {
+      if (file.sample) {
+        // The same sample opened again (and untouched): just bring its tab forward.
+        const existing = set.docs.find((d) => ephemeral.has(d.id) && !d.handle && !isDocDirty(d) && d.name === file.name)
+        if (existing) {
+          switchTo(existing.id)
+          return
+        }
+      }
       const doc = makeDoc(file.name, file.text, file.handle)
       if (file.sample) ephemeral.add(doc.id)
       if (file.handle && file.lastModified !== undefined) stamps.set(doc.id, file.lastModified)

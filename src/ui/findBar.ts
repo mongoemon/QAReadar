@@ -1,3 +1,4 @@
+import { PLATFORM, formatCombo } from '../lib/shortcuts'
 import {
   EXTENDED_ESCAPES,
   findMatches,
@@ -37,8 +38,8 @@ export function createFindBar(host: FindHost): FindBar {
   const findInput = el('input', { class: 'find-input', type: 'search' })
   const replaceInput = el('input', { class: 'find-input', type: 'text' })
   const status = el('span', { class: 'find-status', role: 'status' })
-  const prev = iconButton('chevronUp', () => t('find.prev'), { variant: 'small ghost', shortcut: 'Shift+Enter' })
-  const next = iconButton('chevronDown', () => t('find.next'), { variant: 'small ghost', shortcut: 'Enter' })
+  const prev = iconButton('chevronUp', () => t('find.prev'), { variant: 'small ghost', shortcut: formatCombo('Shift+Enter', PLATFORM) })
+  const next = iconButton('chevronDown', () => t('find.next'), { variant: 'small ghost', shortcut: formatCombo('Enter', PLATFORM) })
   const replaceOne = iconButton('replace', () => t('find.replaceOneTip'), { variant: 'small', text: () => t('find.replaceOne') })
   const replaceEvery = iconButton('replaceAll', () => t('find.replaceAllTip'), { variant: 'small', text: () => t('find.replaceAll') })
   const closeBtn = iconButton('close', () => t('find.close'), { variant: 'small ghost', shortcut: 'Esc' })

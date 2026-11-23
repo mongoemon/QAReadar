@@ -7,7 +7,7 @@ import { makeRecentId } from './lib/recent'
 import { listRecent, saveRecent, type StoredRecent } from './lib/recentStore'
 import { readStored, writeStored } from './lib/safeStorage'
 import { isThemePref, nextTheme, resolveDark, type ThemePref } from './lib/theme'
-import { getLang, localized, nextLang, setLang, t } from './lib/i18n'
+import { getLang, localized, nextLang, setLang, t, type MessageKey } from './lib/i18n'
 import { el } from './ui/dom'
 import { icon, iconButton, setIconButton, type IconName } from './ui/icons'
 import { createJsonTab } from './ui/jsonTab'
@@ -16,7 +16,10 @@ import { createMarkdownTab } from './ui/markdownTab'
 import { createMergeTab } from './ui/mergeTab'
 import { createPalette } from './ui/palette'
 import { createTextTab } from './ui/textTab'
-import { STARTER_HTML, STARTER_JSON, STARTER_MARKDOWN, STARTER_MERGE, STARTER_TEXT } from './lib/samples'
+import { STARTER_CSV, STARTER_HTML, STARTER_JSON, STARTER_MARKDOWN, STARTER_MERGE, STARTER_TEXT, type Starter } from './lib/samples'
+import { closeMenu, showMenu } from './ui/menu'
+import { comboFor, comboFromEvent, scopeOf, shortcutLabel, withShortcuts } from './lib/shortcuts'
+import { createShortcutsDialog, type ShortcutGroup } from './ui/shortcutsDialog'
 import { errorMessage, toast } from './ui/toast'
 import type { TabController } from './ui/types'
 
@@ -29,7 +32,9 @@ const markdownTab = createMarkdownTab()
 const jsonTab = createJsonTab()
 const locatorTab = createLocatorTab()
 // Text sits after Markdown, so .txt keeps opening in Markdown; logs, CSV, YAML… open here.
-const tabs: TabController[] = [markdownTab, createTextTab(STARTER_TEXT), jsonTab, locatorTab, createMergeTab(STARTER_MERGE)]
+const textTab = createTextTab()
+const mergeTab = createMergeTab(STARTER_MERGE)
+const tabs: TabController[] = [markdownTab, textTab, jsonTab, locatorTab, mergeTab]
 let active: TabController = tabs[0]
 
 /** Kind used by the open picker and drag-drop: includes convertible extras, unlike save. */
@@ -54,9 +59,13 @@ const tabList = el('div', { class: 'tabs', role: 'tablist' })
 for (const tab of tabs) {
   const label = el('span', {})
   const button = el('button', { class: 'tab', role: 'tab', type: 'button' }, icon(TAB_ICONS[tab.id] ?? 'fileText'), label)
-  localized(() => {
+  const render = (): void => {
     label.textContent = tab.label
-  })
+    const key = shortcutLabel(`tab.${tab.id}`)
+    button.title = key ? `${tab.label} (${key})` : tab.label
+  }
+  localized(render)
+  withShortcuts(render)
   button.addEventListener('click', () => activate(tab))
   tabButtons.set(tab, button)
   tabList.append(button)
@@ -66,14 +75,16 @@ const chipName = el('span', { class: 'chip-name' })
 const chipDot = el('span', { class: 'chip-dot' })
 const chip = el('div', { class: 'chip' }, chipDot, chipName)
 
-const openBtn = iconButton('open', () => t('top.open'), { variant: 'ghost', shortcut: 'Ctrl+O' })
-const recentBtn = iconButton('recent', () => t('top.recent'), { variant: 'ghost' })
-const saveBtn = iconButton('save', () => t('top.save'), { variant: 'primary', text: () => t('top.save'), shortcut: 'Ctrl+S' })
-const saveAsBtn = iconButton('saveAs', () => t('top.saveAs'), { variant: 'ghost', shortcut: 'Ctrl+Shift+S' })
+const samplesBtn = iconButton('sample', () => t('top.samplesTip'), { variant: 'ghost samples-btn', text: () => t('top.samples'), shortcut: () => shortcutLabel('file.samples'), attrs: { 'aria-haspopup': 'menu', 'aria-expanded': 'false' } })
+const openBtn = iconButton('open', () => t('top.open'), { variant: 'ghost', shortcut: () => shortcutLabel('file.open') })
+const recentBtn = iconButton('recent', () => t('top.recent'), { variant: 'ghost', shortcut: () => shortcutLabel('file.recent') })
+const saveBtn = iconButton('save', () => t('top.save'), { variant: 'primary', text: () => t('top.save'), shortcut: () => shortcutLabel('file.save') })
+const saveAsBtn = iconButton('saveAs', () => t('top.saveAs'), { variant: 'ghost', shortcut: () => shortcutLabel('file.saveas') })
 const themeBtn = iconButton('monitor', '', { variant: 'ghost' })
-const langBtn = iconButton('languages', () => t('top.lang'), { variant: 'ghost lang-btn', text: () => getLang().toUpperCase() })
-const focusBtn = iconButton('focus', () => t('top.focus'), { variant: 'ghost', shortcut: 'Ctrl+.' })
-const commandBtn = iconButton('command', () => t('top.command'), { variant: 'ghost', shortcut: 'Ctrl+K' })
+const langBtn = iconButton('languages', () => t('top.lang'), { variant: 'ghost lang-btn', text: () => getLang().toUpperCase(), shortcut: () => shortcutLabel('view.lang') })
+const focusBtn = iconButton('focus', () => t('top.focus'), { variant: 'ghost', shortcut: () => shortcutLabel('view.focus') })
+const commandBtn = iconButton('command', () => t('top.command'), { variant: 'ghost', shortcut: () => shortcutLabel('view.palette') })
+const shortcutsBtn = iconButton('keyboard', () => t('top.shortcuts'), { variant: 'ghost', shortcut: () => shortcutLabel('help.shortcuts') })
 const THEME_ICONS: Record<ThemePref, IconName> = { auto: 'monitor', light: 'sun', dark: 'moon' }
 
 const REPO_URL = 'https://github.com/mongoemon/QAReadar'
@@ -116,12 +127,12 @@ const header = el(
   ),
   tabList,
   chip,
-  el('div', { class: 'actions' }, openBtn, recentBtn, saveAsBtn, saveBtn, el('span', { class: 'actions-sep', 'aria-hidden': 'true' }), themeBtn, langBtn, focusBtn, commandBtn, githubLink()),
+  el('div', { class: 'actions' }, samplesBtn, openBtn, recentBtn, saveAsBtn, saveBtn, el('span', { class: 'actions-sep', 'aria-hidden': 'true' }), themeBtn, langBtn, focusBtn, shortcutsBtn, commandBtn, githubLink()),
 )
 const main = el('main', { class: 'stage' }, ...tabs.map((tab) => tab.element))
 const toastHost = el('div', { id: 'toast', class: 'toast', role: 'status' })
 toastHost.hidden = true
-const zenExit = iconButton('exitFocus', () => t('zen.exit'), { variant: 'ghost zen-exit', shortcut: 'Esc / Ctrl+.' })
+const zenExit = iconButton('exitFocus', () => t('zen.exit'), { variant: 'ghost zen-exit', shortcut: () => ['Esc', shortcutLabel('view.focus')].filter(Boolean).join(' / ') })
 zenExit.hidden = true
 root.append(header, main, toastHost, zenExit)
 
@@ -135,7 +146,11 @@ function applyTheme(): void {
   else document.documentElement.dataset.theme = themePref
   const dark = resolveDark(themePref, systemDark.matches)
   for (const tab of tabs) tab.setDark?.(dark)
-  setIconButton(themeBtn, THEME_ICONS[themePref], t('top.theme', { theme: t(`theme.${themePref}`) }))
+  renderThemeBtn()
+}
+
+function renderThemeBtn(): void {
+  setIconButton(themeBtn, THEME_ICONS[themePref], t('top.theme', { theme: t(`theme.${themePref}`) }), undefined, shortcutLabel('view.theme'))
 }
 
 function cycleTheme(): void {
@@ -151,8 +166,9 @@ const cycleLang = (): void => setLang(nextLang(getLang()))
 localized(() => {
   tabList.setAttribute('aria-label', t('tabs.aria'))
   chipDot.title = t('chip.unsaved')
-  setIconButton(themeBtn, THEME_ICONS[themePref], t('top.theme', { theme: t(`theme.${themePref}`) }))
+  renderThemeBtn()
 })
+withShortcuts(renderThemeBtn)
 
 // ── focus mode ────────────────────────────────────────────────────────────
 function setFocusMode(on: boolean): void {
@@ -232,28 +248,104 @@ const save = (forceNew: boolean): Promise<void> =>
     void remember(active, saved.name, saved.handle)
   })
 
-const palette = createPalette((): Command[] => [
-  { id: 'file.open', title: t('cmd.open'), hint: 'Ctrl+O', run: () => void openFile() },
-  { id: 'file.save', title: t('cmd.save'), hint: 'Ctrl+S', run: () => void save(false) },
-  { id: 'file.saveas', title: t('cmd.saveAs'), hint: 'Ctrl+Shift+S', run: () => void save(true) },
-  ...tabs.map((tab): Command => ({
-    id: `tab.${tab.id}`,
-    title: t('cmd.goTab', { tab: tab.label }),
-    run: () => activate(tab),
-  })),
-  { id: 'view.theme', title: t('cmd.theme'), run: cycleTheme },
-  { id: 'view.focus', title: t('cmd.focus'), hint: 'Ctrl+.', run: toggleFocusMode },
-  { id: 'view.lang', title: t('cmd.lang'), run: cycleLang },
-  { id: 'help.changelog', title: t('cmd.changelog', { v: __APP_VERSION__ }), run: changelog.open },
-  ...recents.map((stored): Command => ({
-    id: `recent.${stored.entry.id}`,
-    title: t('cmd.recent', { name: stored.entry.name }),
-    run: () => void guarded(() => openRecent(stored)),
-  })),
-  ...(active.commands?.() ?? []),
+// ── samples (nothing is preloaded: each tool's example opens on demand) ──
+interface Sample {
+  readonly id: string
+  readonly label: MessageKey
+  readonly icon: IconName
+  readonly tab: TabController
+  /** Single file opened into the tab; absent for the merge pair. */
+  readonly file?: Starter
+}
+const SAMPLES: readonly Sample[] = [
+  { id: 'markdown', label: 'sample.markdown', icon: 'fileText', tab: markdownTab, file: STARTER_MARKDOWN },
+  { id: 'text', label: 'sample.text', icon: 'notepad', tab: textTab, file: STARTER_TEXT },
+  { id: 'csv', label: 'sample.csv', icon: 'table', tab: textTab, file: STARTER_CSV },
+  { id: 'json', label: 'sample.json', icon: 'braces', tab: jsonTab, file: STARTER_JSON },
+  { id: 'locator', label: 'sample.locator', icon: 'crosshair', tab: locatorTab, file: STARTER_HTML },
+  { id: 'merge', label: 'sample.merge', icon: 'gitCompare', tab: mergeTab },
+]
+
+function openSample(sample: Sample): void {
+  if (!sample.file) {
+    if (mergeTab.isDirty() && !window.confirm(t('confirm.replaceTab'))) return
+    mergeTab.loadSample()
+    activate(mergeTab)
+    toast(t('sample.loaded', { name: `${STARTER_MERGE.manual.fileName} ↔ ${STARTER_MERGE.automate.fileName}` }))
+    return
+  }
+  // Unsaved and unlinked, so the first Save asks where to put it; never added to Recent.
+  const { tab, file } = sample
+  if (!tab.multiDoc && tab.isDirty() && !window.confirm(t('confirm.replaceTab'))) return
+  tab.open({ name: file.fileName, text: file.text, handle: null, sample: true })
+  activate(tab)
+  toast(t('sample.loaded', { name: file.fileName }))
+}
+
+function openSamplesMenu(): void {
+  if (closeMenu()) return
+  showMenu(
+    SAMPLES.map((sample) => ({ label: t(sample.label), icon: sample.icon, run: () => openSample(sample) })),
+    samplesBtn,
+    t('top.samples'),
+  )
+}
+
+/** App-wide commands: in the palette, and bindable in the shortcut editor. */
+function globalCommands(): Command[] {
+  const step = (by: number) => (): void => activate(tabs[(tabs.indexOf(active) + by + tabs.length) % tabs.length])
+  return [
+    { id: 'file.open', title: t('cmd.open'), run: () => void openFile() },
+    { id: 'file.save', title: t('cmd.save'), run: () => void save(false) },
+    { id: 'file.saveas', title: t('cmd.saveAs'), run: () => void save(true) },
+    { id: 'file.recent', title: t('cmd.recentList'), run: () => palette.open(t('palette.recentQuery')) },
+    { id: 'file.samples', title: t('cmd.samples'), run: openSamplesMenu },
+    ...tabs.map((tab): Command => ({
+      id: `tab.${tab.id}`,
+      title: t('cmd.goTab', { tab: tab.label }),
+      run: () => activate(tab),
+    })),
+    { id: 'tab.next', title: t('cmd.nextTab'), run: step(1) },
+    { id: 'tab.prev', title: t('cmd.prevTab'), run: step(-1) },
+    { id: 'view.palette', title: t('cmd.palette'), run: () => palette.open() },
+    { id: 'view.theme', title: t('cmd.theme'), run: cycleTheme },
+    { id: 'view.focus', title: t('cmd.focus'), run: toggleFocusMode },
+    { id: 'view.lang', title: t('cmd.lang'), run: cycleLang },
+    { id: 'help.shortcuts', title: t('cmd.shortcuts'), run: () => shortcuts.open() },
+    { id: 'help.changelog', title: t('cmd.changelog', { v: __APP_VERSION__ }), run: changelog.open },
+    ...SAMPLES.map((sample): Command => ({
+      id: `sample.${sample.id}`,
+      title: t('cmd.sample', { name: t(sample.label) }),
+      run: () => openSample(sample),
+    })),
+  ]
+}
+
+/** Palette hints always show the live binding, on this machine's keys. */
+const withHint = (command: Command): Command => ({ ...command, hint: shortcutLabel(command.id) })
+
+const palette = createPalette((): Command[] =>
+  [
+    ...globalCommands().filter((c) => c.id !== 'view.palette'),
+    ...recents.map((stored): Command => ({
+      id: `recent.${stored.entry.id}`,
+      title: t('cmd.recent', { name: stored.entry.name }),
+      run: () => void guarded(() => openRecent(stored)),
+    })),
+    ...(active.commands?.() ?? []),
+  ].map(withHint),
+)
+
+const shortcuts = createShortcutsDialog((): ShortcutGroup[] => [
+  { title: t('sc.general'), commands: globalCommands() },
+  ...tabs.flatMap((tab) => {
+    const commands = tab.commands?.() ?? []
+    return commands.length ? [{ title: tab.label, commands }] : []
+  }),
 ])
 
 for (const tab of tabs) tab.onChange(() => tab === active && refreshChip())
+samplesBtn.addEventListener('click', openSamplesMenu)
 openBtn.addEventListener('click', openFile)
 recentBtn.addEventListener('click', () => palette.open(t('palette.recentQuery')))
 saveBtn.addEventListener('click', () => save(false))
@@ -262,29 +354,35 @@ themeBtn.addEventListener('click', cycleTheme)
 langBtn.addEventListener('click', cycleLang)
 focusBtn.addEventListener('click', () => setFocusMode(true))
 commandBtn.addEventListener('click', () => palette.open())
+shortcutsBtn.addEventListener('click', () => shortcuts.open())
 zenExit.addEventListener('click', () => setFocusMode(false))
 
-window.addEventListener('keydown', (ev) => {
-  if (ev.key === 'Escape' && document.body.classList.contains('zen')) {
-    setFocusMode(false)
-    return
-  }
-  if (!(ev.ctrlKey || ev.metaKey)) return
-  const key = ev.key.toLowerCase()
-  if (key === 's') {
+/**
+ * One dispatcher for every shortcut (see lib/shortcuts.ts). Capture phase, so a bound combo
+ * beats the editors' and the browser's own handling; unbound keys pass through untouched.
+ * The active tab's commands win over global ones when both use the same keys.
+ */
+window.addEventListener(
+  'keydown',
+  (ev) => {
+    if (ev.isComposing || shortcuts.isOpen()) return
+    if (ev.key === 'Escape' && document.body.classList.contains('zen')) {
+      setFocusMode(false)
+      return
+    }
+    // Plain typing never matches a binding (only modifier combos and F-keys are bindable).
+    if (!ev.ctrlKey && !ev.altKey && !ev.metaKey && !/^F\d{1,2}$/.test(ev.code)) return
+    const combo = comboFromEvent(ev)
+    if (!combo || palette.isOpen()) return
+    const candidates = [...(active.commands?.() ?? []), ...globalCommands()]
+    const command = candidates.find((c) => comboFor(c.id) === combo && (scopeOf(c.id) === 'global' || scopeOf(c.id) === active.id))
+    if (!command) return
     ev.preventDefault()
-    void save(ev.shiftKey)
-  } else if (key === 'o') {
-    ev.preventDefault()
-    void openFile()
-  } else if (ev.key === '.' || ev.code === 'Period') {
-    ev.preventDefault()
-    toggleFocusMode()
-  } else if (key === 'k') {
-    ev.preventDefault()
-    palette.open()
-  }
-})
+    ev.stopPropagation()
+    command.run()
+  },
+  true,
+)
 
 interface DroppedItem {
   readonly file: File
@@ -353,11 +451,6 @@ function openDropped(transfer: DataTransfer, target: EventTarget | null): void {
 window.addEventListener('beforeunload', (ev) => {
   if (tabs.some((tab) => tab.isDirty())) ev.preventDefault()
 })
-
-// Starter documents: unsaved (no handle), so the first Save asks where to put them.
-for (const [tab, starter] of [[markdownTab, STARTER_MARKDOWN], [jsonTab, STARTER_JSON], [locatorTab, STARTER_HTML]] as const) {
-  tab.open({ name: starter.fileName, text: starter.text, handle: null, sample: true })
-}
 
 applyTheme()
 activate(active)

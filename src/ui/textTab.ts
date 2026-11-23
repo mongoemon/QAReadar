@@ -11,10 +11,13 @@ import {
   type Block,
   type BlockEdit,
 } from '../lib/columnSelection'
+import { TABLE_EXTENSIONS } from '../lib/csv'
 import type { FileHandleLike, FileKind, OpenedFile } from '../lib/fileAccess'
+import { extensionOf } from '../lib/fileKind'
 import { offsetToPos } from '../lib/findReplace'
 import { localized, t, type MessageKey } from '../lib/i18n'
 import { readStored, writeStored } from '../lib/safeStorage'
+import { shortcutLabel } from '../lib/shortcuts'
 import type { Starter } from '../lib/samples'
 import {
   applyTextTool,
@@ -29,6 +32,7 @@ import {
   type Eol,
   type TextToolId,
 } from '../lib/textTools'
+import { createCsvView } from './csvTable'
 import { el } from './dom'
 import { createFindBar } from './findBar'
 import { iconButton, setIconButton } from './icons'
@@ -85,19 +89,20 @@ export function createTextTab(starter?: Starter): TabController {
   let hit: { start: number; end: number } | null = null
   /** Set while we feed our own edit through execCommand, so beforeinput lets it pass. */
   let applying = false
+  /** Plain text, or the CSV / TSV table view of the same document. */
+  let view: 'text' | 'table' = 'text'
 
   // ── chrome ──
-  const findBtn = iconButton('search', () => t('te.find'), { variant: 'small ghost', shortcut: 'Ctrl+F' })
-  const replaceBtn = iconButton('replace', () => t('te.replace'), { variant: 'small ghost', shortcut: 'Ctrl+H' })
-  const gotoBtn = iconButton('hash', () => t('te.goto'), { variant: 'small ghost', shortcut: 'Ctrl+G' })
+  const tableBtn = el('button', { class: 'btn with-icon small ghost te-view', type: 'button' })
+  const findBtn = iconButton('search', () => t('te.find'), { variant: 'small ghost', shortcut: () => shortcutLabel('text.find') })
+  const replaceBtn = iconButton('replace', () => t('te.replace'), { variant: 'small ghost', shortcut: () => shortcutLabel('text.replace') })
+  const gotoBtn = iconButton('hash', () => t('te.goto'), { variant: 'small ghost', shortcut: () => shortcutLabel('text.goto') })
   const wrapBtn = el('button', { class: 'btn icon-only small ghost', type: 'button' })
   const toolsSelect = el('select', { class: 'te-tools' })
   const hint = el('span', { class: 'hint te-hint' })
-  const bar = el(
-    'div',
-    { class: 'pane-bar te-bar' },
-    findBtn, replaceBtn, gotoBtn, wrapBtn, toolsSelect, el('span', { class: 'merge-spacer' }), hint,
-  )
+  const textControls = el('div', { class: 'te-text-controls' }, findBtn, replaceBtn, gotoBtn, wrapBtn, toolsSelect)
+  const spacer = el('span', { class: 'merge-spacer' })
+  const bar = el('div', { class: 'pane-bar te-bar' }, tableBtn, textControls, spacer, hint)
 
   const input = el('textarea', { class: 'te-input', spellcheck: 'false', autocomplete: 'off', autocapitalize: 'off' })
   const gutterInner = el('div', { class: 'te-gutter-inner' })
@@ -130,7 +135,29 @@ export function createTextTab(starter?: Starter): TabController {
     findInView: () => false,
   })
 
-  const element = el('section', { class: 'pane te-pane' }, bar, findBar.element, editor, status)
+  const csv = createCsvView({
+    getText: () => input.value,
+    getFileName: () => name,
+    replace(start, end, text) {
+      // The textarea is hidden in table view, so write directly (the browser's undo can't follow).
+      input.value = input.value.slice(0, start) + text + input.value.slice(end)
+      afterChange()
+    },
+    revealLine(line) {
+      setView('text')
+      const start = lineStartOffset(input.value, line)
+      const nl = input.value.indexOf('\n', start)
+      input.focus({ preventScroll: true })
+      input.setSelectionRange(start, nl === -1 ? input.value.length : nl)
+      scrollToOffset(start)
+      refreshStatus()
+    },
+  })
+  csv.element.hidden = true
+  csv.controls.hidden = true
+  bar.insertBefore(csv.controls, spacer)
+
+  const element = el('section', { class: 'pane te-pane' }, bar, findBar.element, editor, csv.element, status)
 
   // ── geometry (monospace font, wrap off) ──
   let charWidth = 0
@@ -249,6 +276,14 @@ export function createTextTab(starter?: Starter): TabController {
 
   function refreshStatus(): void {
     const text = input.value
+    if (view === 'table') {
+      posEl.textContent = csv.summary()
+      blockEl.hidden = true
+      sizeEl.textContent = t('te.size', { lines: countLines(text), chars: text.length })
+      eolBtn.textContent = EOL_NAMES[eol]
+      eolBtn.title = t('te.eolTip', { eol: EOL_NAMES[eol] })
+      return
+    }
     const { line, col } = cellOf(input.selectionEnd)
     const selected = Math.abs(input.selectionEnd - input.selectionStart)
     posEl.textContent =
@@ -293,7 +328,37 @@ export function createTextTab(starter?: Starter): TabController {
     toolsSelect.value = ''
   }
 
+  function renderTableBtn(): void {
+    const table = view === 'table'
+    setIconButton(tableBtn, 'table', table ? t('te.viewTextTip') : t('te.viewTableTip'), t('te.viewTable'))
+    tableBtn.setAttribute('aria-pressed', String(table))
+  }
+
+  function setView(next: 'text' | 'table'): void {
+    if (next === view) return
+    view = next
+    const table = view === 'table'
+    if (table) {
+      block = null
+      hit = null
+      findBar.close()
+      csv.render()
+    }
+    editor.hidden = table
+    textControls.hidden = table
+    hint.hidden = table
+    csv.element.hidden = !table
+    csv.controls.hidden = !table
+    renderTableBtn()
+    if (!table) {
+      renderGutter()
+      renderOverlay()
+    }
+    refreshStatus()
+  }
+
   function afterChange(): void {
+    if (view === 'table') csv.render()
     renderGutter()
     renderOverlay()
     refreshStatus()
@@ -582,6 +647,7 @@ export function createTextTab(starter?: Starter): TabController {
     afterChange()
   }
 
+  tableBtn.addEventListener('click', () => setView(view === 'table' ? 'text' : 'table'))
   findBtn.addEventListener('click', () => openFind(false))
   replaceBtn.addEventListener('click', () => openFind(true))
   gotoBtn.addEventListener('click', goToLine)
@@ -593,26 +659,24 @@ export function createTextTab(starter?: Starter): TabController {
     if ((TEXT_TOOLS as readonly string[]).includes(id)) runTool(id as TextToolId)
     input.focus()
   })
-  element.addEventListener(
-    'keydown',
-    (ev) => {
-      if (!(ev.ctrlKey || ev.metaKey) || ev.altKey) return
-      const key = ev.key.toLowerCase()
-      if (key === 'f' || key === 'h') {
-        ev.preventDefault()
-        ev.stopPropagation()
-        openFind(key === 'h')
-      } else if (key === 'g') {
-        ev.preventDefault()
-        goToLine()
-      } else if (key === 'd' && ev.target === input) {
-        ev.preventDefault()
-        block = null
-        duplicateLines()
-      }
-    },
-    true,
-  )
+  // Shortcuts (Ctrl/⌘+F, H, G, D …) are dispatched by main.ts to the commands below.
+  /** Find: in the table view, the table's own row filter. */
+  function findCommand(): void {
+    if (view === 'table') csv.focusFilter()
+    else openFind(false)
+  }
+  /** Replace / go to line work on the text: leave the table first. */
+  function textOnly(action: () => void): () => void {
+    return () => {
+      setView('text')
+      action()
+    }
+  }
+  function duplicateCommand(): void {
+    if (view === 'table') return
+    block = null
+    duplicateLines()
+  }
 
   function load(file: { readonly name: string; readonly text: string; readonly handle: FileHandleLike | null }): void {
     name = file.name
@@ -625,6 +689,10 @@ export function createTextTab(starter?: Starter): TabController {
     input.scrollTop = 0
     input.scrollLeft = 0
     savedText = withEol(input.value, eol)
+    csv.reset()
+    // CSV / TSV open as a table; everything else as text.
+    const table = TABLE_EXTENSIONS.includes(extensionOf(name))
+    if (table !== (view === 'table')) setView(table ? 'table' : 'text')
     afterChange()
   }
 
@@ -636,16 +704,18 @@ export function createTextTab(starter?: Starter): TabController {
     input.setAttribute('aria-label', t('te.aria'))
     input.placeholder = t('te.placeholder')
     hint.textContent = t('te.hint')
+    renderTableBtn()
     renderWrapBtn()
     renderTools()
     refreshStatus()
   })
 
   const commands = (): Command[] => [
-    { id: 'text.find', title: t('te.cmd.find'), hint: 'Ctrl+F', run: () => openFind(false) },
-    { id: 'text.replace', title: t('te.cmd.replace'), hint: 'Ctrl+H', run: () => openFind(true) },
-    { id: 'text.goto', title: t('te.cmd.goto'), hint: 'Ctrl+G', run: goToLine },
-    { id: 'text.duplicate', title: t('te.cmd.duplicate'), hint: 'Ctrl+D', run: duplicateLines },
+    { id: 'text.find', title: t('te.cmd.find'), run: findCommand },
+    { id: 'text.replace', title: t('te.cmd.replace'), run: textOnly(() => openFind(true)) },
+    { id: 'text.goto', title: t('te.cmd.goto'), run: textOnly(goToLine) },
+    { id: 'text.duplicate', title: t('te.cmd.duplicate'), run: duplicateCommand },
+    { id: 'text.table', title: t('te.cmd.table'), run: () => setView(view === 'table' ? 'text' : 'table') },
     { id: 'text.wrap', title: t('te.cmd.wrap'), run: () => setWrap(!wrap) },
     { id: 'text.eol', title: t('te.cmd.eol'), run: cycleEol },
     { id: 'text.new', title: t('te.cmd.new'), run: () => load({ name: DEFAULT_NAME, text: '', handle: null }) },

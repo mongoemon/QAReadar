@@ -4,17 +4,19 @@ import loginHtml from '../../examples/login.html?raw'
 import manualFeature from '../../examples/manual-login.feature?raw'
 import automateFeature from '../../examples/automate-login.feature?raw'
 import textTips from '../../examples/text-editor.txt?raw'
+import usersCsv from '../../examples/users.csv?raw'
 
 export interface Starter {
   readonly fileName: string
   readonly text: string
 }
 
-/** Documents preloaded in each editor on first launch. */
+/** Built-in example documents, opened on demand from the Samples menu (nothing is preloaded). */
 export const STARTER_MARKDOWN: Starter = { fileName: 'showcase.md', text: showcaseMd }
 export const STARTER_JSON: Starter = { fileName: 'showcase.json', text: showcaseJson }
 export const STARTER_HTML: Starter = { fileName: 'login.html', text: loginHtml }
 export const STARTER_TEXT: Starter = { fileName: 'text-editor.txt', text: textTips }
+export const STARTER_CSV: Starter = { fileName: 'users.csv', text: usersCsv }
 /** Diff & Merge tab: a manual test case and its automated counterpart. */
 export const STARTER_MERGE: { readonly manual: Starter; readonly automate: Starter } = {
   manual: { fileName: 'manual-login.feature', text: manualFeature },

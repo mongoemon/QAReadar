@@ -1,4 +1,5 @@
 import { localized } from '../lib/i18n'
+import { withShortcuts } from '../lib/shortcuts'
 import { el } from './dom'
 
 /**
@@ -74,10 +75,17 @@ const ICONS = {
   gitCompare: [circle(18, 18, 3), circle(6, 6, 3), p('M13 6h3a2 2 0 0 1 2 2v7'), p('M11 18H8a2 2 0 0 1-2-2V9')],
   swap: [p('M8 3 4 7l4 4'), p('M4 7h16'), p('m16 21 4-4-4-4'), p('M20 17H4')],
   wrap: [p('M3 6h18'), p('M3 12h15a3 3 0 1 1 0 6h-4'), p('m16 16-2 2 2 2'), p('M3 18h7')],
+  table: [rect(3, 3, 18, 18, 2), p('M3 9h18'), p('M3 15h18'), p('M12 3v18')],
   hash: [p('M4 9h16'), p('M4 15h16'), p('M10 3 8 21'), p('M16 3l-2 18')],
   notepad: [p('M13 21h8'), p('m15 5 4 4'), p('M21.17 6.81a1 1 0 0 0-3.99-3.99L3.84 16.17a2 2 0 0 0-.5.83l-1.32 4.35a.5.5 0 0 0 .62.62l4.35-1.32a2 2 0 0 0 .83-.5z')],
   focus: [p('M8 3H5a2 2 0 0 0-2 2v3'), p('M21 8V5a2 2 0 0 0-2-2h-3'), p('M3 16v3a2 2 0 0 0 2 2h3'), p('M16 21h3a2 2 0 0 0 2-2v-3')],
   exitFocus: [p('M8 3v3a2 2 0 0 1-2 2H3'), p('M21 8h-3a2 2 0 0 1-2-2V3'), p('M3 16h3a2 2 0 0 1 2 2v3'), p('M16 21v-3a2 2 0 0 1 2-2h3')],
+  sample: [
+    p('M14 2v6a2 2 0 0 0 .245.96l5.51 10.08A2 2 0 0 1 18 22H6a2 2 0 0 1-1.755-2.96l5.51-10.08A2 2 0 0 0 10 8V2'),
+    p('M6.453 15h11.094'), p('M8.5 2h7'),
+  ],
+  keyboard: [rect(2, 4, 20, 16, 2), p('M6 8h.01'), p('M10 8h.01'), p('M14 8h.01'), p('M18 8h.01'), p('M8 12h.01'), p('M12 12h.01'), p('M16 12h.01'), p('M7 16h10')],
+  duplicate: [p('M15 12v6'), p('M12 15h6'), rect(8, 8, 14, 14, 2), p('M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2')],
 } as const satisfies Record<string, readonly Shape[]>
 
 export type IconName = keyof typeof ICONS
@@ -116,8 +124,8 @@ export interface IconButtonOptions {
   readonly variant?: string
   /** Visible text next to the icon. Omit for an icon-only button. */
   readonly text?: Text
-  /** Shortcut appended to the tooltip, e.g. 'Ctrl+S'. */
-  readonly shortcut?: string
+  /** Shortcut appended to the tooltip: a fixed key ('Esc') or a function (follows rebinding). */
+  readonly shortcut?: string | (() => string | undefined)
   readonly attrs?: Readonly<Record<string, string>>
 }
 
@@ -132,9 +140,12 @@ export function iconButton(name: IconName, label: Text, options: IconButtonOptio
   const { variant = '', text, shortcut, attrs = {} } = options
   const classes = ['btn', text ? 'with-icon' : 'icon-only', ...variant.split(' ').filter(Boolean)].join(' ')
   const button = el('button', { class: classes, type: 'button', ...attrs })
-  const render = (): void => setIconButton(button, name, resolve(label) ?? '', resolve(text), shortcut)
+  const render = (): void =>
+    setIconButton(button, name, resolve(label) ?? '', resolve(text), typeof shortcut === 'function' ? shortcut() : shortcut)
   if (typeof label === 'function' || typeof text === 'function') localized(render)
   else render()
+  // Rebinding a shortcut updates the tooltip too (render() above already ran once).
+  if (typeof shortcut === 'function') withShortcuts(render)
   return button
 }
 

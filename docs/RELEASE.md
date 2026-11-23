@@ -183,3 +183,25 @@ export const CHANGELOG: readonly Release[] = [
 | `src/lib/changelog.test.ts` | เทสต์ที่บังคับให้ changelog ตรงกับเวอร์ชัน |
 
 ถ้าเปลี่ยนชื่อ Cloudflare Pages project หรือ URL ให้แก้ค่า `PAGES_PROJECT` / `SITE_URL` ด้านบนของ `scripts/release.mjs` และคำสั่ง `deploy` ใน `package.json`
+
+---
+
+## 7. แอป Desktop (macOS / Windows)
+
+ห่อเว็บแอปด้วย Electron (`electron/main.cjs`) ตั้งค่า build อยู่ใน `package.json` → `build` ไฟล์ผลลัพธ์อยู่ในโฟลเดอร์ `release/`
+
+| คำสั่ง | ได้ไฟล์ |
+| ------ | ------- |
+| `npm run desktop` | เปิดแอปแบบ desktop เพื่อทดสอบ (ยังไม่ทำไฟล์ติดตั้ง) |
+| `npm run dist:mac` | `QAReadar-<ver>-mac-arm64.dmg` (Apple Silicon), `QAReadar-<ver>-mac-x64.dmg` (Intel) และ `.zip` |
+| `npm run dist:win` | `QAReadar-Setup-<ver>.exe` (ตัวติดตั้ง), `QAReadar-<ver>-portable.exe` (ดับเบิลคลิกใช้ได้เลย) |
+| `npm run dist:all` | ทั้งสองแบบ (build Windows จาก Mac ได้ ไม่ต้องลง Wine) |
+
+ไฟล์ยังไม่ได้ sign ดังนั้นตอนเปิดครั้งแรก:
+
+- **macOS**: คลิกขวาที่แอป → Open → Open หรือรัน `xattr -cr /Applications/QAReadar.app`
+- **Windows**: SmartScreen ขึ้นเตือน → More info → Run anyway
+
+ไอคอนแอปคือ `build/icon.png` (1024×1024 render จาก `public/icon.svg`)
+
+> ถ้ารัน `npm run desktop` จาก terminal ใน VS Code แล้วแอปปิดทันที ให้รัน `unset ELECTRON_RUN_AS_NODE` ก่อน (VS Code ตั้งตัวแปรนี้ไว้ ทำให้ Electron ทำงานเป็น Node ธรรมดา)

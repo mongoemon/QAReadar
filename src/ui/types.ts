@@ -16,7 +16,7 @@ export interface TabController {
   /** True when open() adds a document instead of replacing the current one. */
   readonly multiDoc?: boolean
   readonly element: HTMLElement
-  /** Tab-specific entries for the command palette. */
+  /** Tab-specific entries for the command palette; their ids are also what shortcuts bind to. */
   commands?(): Command[]
   setDark?(dark: boolean): void
   open(file: OpenedFile): void

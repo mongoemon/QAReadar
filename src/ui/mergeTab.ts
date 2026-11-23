@@ -94,7 +94,12 @@ function mergedName(base: string): string {
   return dot > 0 ? `${base.slice(0, dot)}.merged${base.slice(dot)}` : `${base}.merged.txt`
 }
 
-export function createMergeTab(starter?: { readonly manual: Starter; readonly automate: Starter }): TabController {
+export interface MergeTab extends TabController {
+  /** Show the built-in example pair (manual vs automate); replaced by the first file opened. */
+  loadSample(): void
+}
+
+export function createMergeTab(sample: { readonly manual: Starter; readonly automate: Starter }): MergeTab {
   const listeners: Array<() => void> = []
   const notify = (): void => listeners.forEach((listener) => listener())
 
@@ -542,12 +547,6 @@ export function createMergeTab(starter?: { readonly manual: Starter; readonly au
     toast(ok ? t('mg.copied') : t('msg.clipboard'), !ok)
   })
 
-  if (starter) {
-    sources.left.input.value = starter.manual.text
-    sources.right.input.value = starter.automate.text
-    showingSample = true
-  }
-
   localized(() => {
     wsText.textContent = t('mg.ignoreWs')
     bulk.setAttribute('aria-label', t('mg.bulkAria'))
@@ -562,6 +561,22 @@ export function createMergeTab(starter?: { readonly manual: Starter; readonly au
     recompute(true)
   })
   savedText = merged
+
+  function loadSample(): void {
+    handle = null
+    savedName = null
+    for (const [side, starter] of [['left', sample.manual], ['right', sample.automate]] as const) {
+      const panel = sources[side]
+      panel.input.value = starter.text
+      panel.fileName = starter.fileName
+      panel.eol = '\n'
+      showName(panel)
+    }
+    showingSample = true
+    recompute(false)
+    savedText = merged
+    notify()
+  }
 
   const commands = (): Command[] => [
     { id: 'merge.left', title: t('mg.cmd.allLeft'), run: () => applyAll('left') },
@@ -593,6 +608,7 @@ export function createMergeTab(starter?: { readonly manual: Starter; readonly au
     multiDoc: true,
     element,
     commands,
+    loadSample,
     open(file: OpenedFile): void {
       loadInto(sideForOpen(), file)
     },

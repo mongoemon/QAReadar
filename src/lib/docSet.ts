@@ -31,6 +31,29 @@ export const addDoc = (set: DocSet, doc: Doc): DocSet => ({
   activeId: doc.id,
 })
 
+/** Insert `doc` right after `afterId` (or at the end if it is gone) and make it active. */
+export function insertDocAfter(set: DocSet, afterId: string, doc: Doc): DocSet {
+  const index = set.docs.findIndex((d) => d.id === afterId)
+  if (index === -1) return addDoc(set, doc)
+  return { docs: [...set.docs.slice(0, index + 1), doc, ...set.docs.slice(index + 1)], activeId: doc.id }
+}
+
+/**
+ * Name for a duplicate that no open doc already uses:
+ * `notes.md` → `notes (copy).md` → `notes (copy 2).md` …
+ */
+export function copyName(name: string, taken: readonly string[]): string {
+  const dot = name.lastIndexOf('.')
+  const hasExt = dot > 0
+  const ext = hasExt ? name.slice(dot) : ''
+  const stem = (hasExt ? name.slice(0, dot) : name).replace(/ \(copy(?: \d+)?\)$/, '')
+  const used = new Set(taken)
+  for (let n = 1; ; n++) {
+    const candidate = `${stem} (copy${n === 1 ? '' : ` ${n}`})${ext}`
+    if (!used.has(candidate)) return candidate
+  }
+}
+
 export function setActive(set: DocSet, id: string): DocSet {
   if (id === set.activeId || !set.docs.some((d) => d.id === id)) return set
   return { ...set, activeId: id }

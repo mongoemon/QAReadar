@@ -3,7 +3,9 @@ import {
   addDoc,
   activeDoc,
   closeDoc,
+  copyName,
   createDocSet,
+  insertDocAfter,
   isDocDirty,
   markDocSaved,
   parseDrafts,
@@ -81,5 +83,36 @@ describe('drafts', () => {
       { name: 'ok', text: 'y' },
     ])
     expect(parseDrafts(null)).toEqual([])
+  })
+})
+
+describe('insertDocAfter', () => {
+  it('places the doc right after the given one and activates it', () => {
+    const set = addDoc(addDoc(createDocSet(doc('a')), doc('b')), doc('c'))
+    const next = insertDocAfter(set, 'a', doc('x'))
+    expect(next.docs.map((d) => d.id)).toEqual(['a', 'x', 'b', 'c'])
+    expect(next.activeId).toBe('x')
+  })
+
+  it('appends when the anchor is gone', () => {
+    const next = insertDocAfter(createDocSet(doc('a')), 'zz', doc('x'))
+    expect(next.docs.map((d) => d.id)).toEqual(['a', 'x'])
+  })
+})
+
+describe('copyName', () => {
+  it('adds (copy) before the extension', () => {
+    expect(copyName('notes.md', ['notes.md'])).toBe('notes (copy).md')
+  })
+
+  it('numbers further copies and does not stack suffixes', () => {
+    const taken = ['notes.md', 'notes (copy).md']
+    expect(copyName('notes.md', taken)).toBe('notes (copy 2).md')
+    expect(copyName('notes (copy).md', taken)).toBe('notes (copy 2).md')
+  })
+
+  it('handles names without an extension and dotfiles', () => {
+    expect(copyName('README', [])).toBe('README (copy)')
+    expect(copyName('.env', [])).toBe('.env (copy)')
   })
 })
