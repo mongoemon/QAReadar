@@ -1,0 +1,31 @@
+/* ── markdown workspace ── */
+.md-pane { --read-size: 17px; --read-width: 80ch; }
+.md-body { display: flex; flex: 1; gap: 12px; min-height: 0; }
+.md-body .md-host { flex: 1; min-width: 0; }
+.md-outline {
+  flex: 0 0 clamp(160px, 22%, 260px);
+  overflow: auto;
+  padding: 8px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+}
+.outline-list { display: flex; flex-direction: column; }
+.outline-item {
+  padding: 3px 6px;
+  border: 0;
+  border-left: 2px solid transparent;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.outline-item:hover { background: var(--paper-2); border-left-color: var(--accent); }
+.outline-item.level-2 { padding-left: 16px; }
+.outline-item.level-3 { padding-left: 26px; font-size: 13px; }
+.outline-item.level-4, .outline-item.level-5, .outline-item.level-6 { padding-left: 36px; font-size: 12.5px; color: var(--ink-soft); }
+.md-status { color: var(--ink-soft); font: 12px var(--mono); }
+

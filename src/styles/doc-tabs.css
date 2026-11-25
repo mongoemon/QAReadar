@@ -1,0 +1,48 @@
+.doc-tabs { display: flex; align-items: center; gap: 2px; overflow-x: auto; border-bottom: 1px solid var(--line); }
+.doc-item { display: inline-flex; align-items: center; border: 1px solid transparent; border-bottom: 0; }
+.doc-item.active { border-color: var(--line); background: var(--surface); }
+.doc-tab, .doc-close, .doc-add {
+  border: 0;
+  background: none;
+  color: var(--ink-soft);
+  font: inherit;
+  cursor: pointer;
+}
+.doc-tab { max-width: 22ch; padding: 4px 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.doc-item.active .doc-tab { color: var(--ink); font-weight: 600; }
+.doc-close { padding: 4px 6px; }
+.doc-close:hover { color: var(--err); }
+.doc-add { padding: 5px 8px; margin-left: 2px; }
+
+/* ── file-on-disk status ── */
+.disk-warn-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 5px;
+  border-radius: 50%;
+  background: var(--amber);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--amber) 25%, transparent);
+  vertical-align: middle;
+}
+.disk-warn { display: inline-flex; align-items: center; color: var(--amber); font-size: 12px; cursor: help; }
+.refresh-btn { position: relative; }
+.refresh-btn:disabled { opacity: 0.45; cursor: default; }
+.refresh-btn:disabled:hover { border-color: transparent; background: none; color: var(--ink-soft); }
+.refresh-btn.has-update::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.doc-add:hover { color: var(--accent); }
+
+.findbar { display: flex; flex-direction: column; gap: 6px; padding: 8px; border: 1px solid var(--line); border-left: 3px solid var(--accent); background: var(--paper-2); }
+.find-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.find-input { flex: 1; min-width: 14ch; padding: 5px 8px; border: 1px solid var(--line); border-radius: 3px; background: var(--surface); color: var(--ink); font: inherit; }
+.find-status { color: var(--ink-soft); font-size: 12px; }
+

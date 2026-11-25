@@ -1,0 +1,11 @@
+/* ── command palette ── */
+.palette-backdrop { position: fixed; inset: 0; z-index: 50; display: grid; justify-items: center; align-items: start; padding: 12vh 16px 0; background: rgb(0 0 0 / 0.4); }
+.palette-box { width: min(560px, 100%); overflow: hidden; border: 1px solid var(--line); background: var(--surface); box-shadow: 0 12px 40px rgb(0 0 0 / 0.35); }
+.palette-input { width: 100%; padding: 12px 14px; border: 0; border-bottom: 1px solid var(--line); background: none; color: var(--ink); font: 15px var(--sans); }
+.palette-input:focus-visible { outline: none; }
+.palette-list { max-height: 50vh; margin: 0; padding: 4px; overflow: auto; list-style: none; }
+.palette-item { display: flex; justify-content: space-between; gap: 12px; padding: 7px 10px; cursor: pointer; }
+.palette-item[aria-selected='true'] { background: color-mix(in srgb, var(--accent) 18%, transparent); }
+.palette-item kbd { color: var(--ink-soft); font: 11px var(--mono); }
+.palette-empty { padding: 10px; color: var(--ink-soft); }
+

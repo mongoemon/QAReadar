@@ -1,0 +1,10 @@
+/* ── Text tab splits (up to 3 editors side by side) ── */
+.te-splits { display: flex; gap: 12px; height: 100%; min-height: 0; }
+.te-splits > .te-pane { flex: 1 1 0; min-width: 0; }
+.te-multi > .te-pane { border-top: 2px solid transparent; padding-top: 4px; }
+.te-multi > .te-pane.te-active-split { border-top-color: var(--accent); }
+.te-multi .te-hint { display: none; }
+@media (max-width: 760px) {
+  .te-splits { flex-direction: column; }
+}
+

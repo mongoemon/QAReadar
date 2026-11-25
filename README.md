@@ -100,7 +100,7 @@ npm run deploy                                                  # deploy อย�
 - **บันทึก**: `Ctrl+S` บันทึกทับไฟล์เดิม, `Ctrl+Shift+S` บันทึกเป็นไฟล์ใหม่
 - **ไฟล์ล่าสุด** (Recent): จำได้ 10 ไฟล์ล่าสุด
 - **ปุ่มเป็นไอคอน** พร้อม tooltip บอกชื่อและคีย์ลัด
-- **ภาษา**: English / ไทย สลับได้ทันทีจากปุ่ม 文A ที่แถบบน (หรือ command palette) จำค่าไว้ และเลือกตามภาษาเบราว์เซอร์ในครั้งแรก ข้อความทั้งหมดอยู่ที่ `src/lib/i18n.ts`
+- **ภาษา**: English / ไทย สลับได้ทันทีจากปุ่ม 文A ที่แถบบน (หรือ command palette) จำค่าไว้ และเลือกตามภาษาเบราว์เซอร์ในครั้งแรก ข้อความทั้งหมดอยู่ที่ `src/lib/i18n/` (`en.ts`, `th.ts`)
 - **Theme**: auto / light / dark
 - **ซ่อน UI (focus mode)** (`Ctrl+.`): ซ่อนแถบเครื่องมือทั้งหมด เหลือแต่เนื้อหา ออกด้วย `Esc` หรือ `Ctrl+.`
 - **เตือนก่อนปิดหน้า** เมื่อมีงานที่ยังไม่บันทึก
@@ -156,6 +156,8 @@ npm run deploy                                                  # deploy อย�
 ```
 src/
 ├── main.ts            # ประกอบแอป: แท็บ, ปุ่ม, คีย์ลัด, theme, recent, drag-drop
+├── style.css          # รวม styles/ ด้วย @import (ลำดับ = ลำดับ cascade)
+├── styles/            # CSS แยกตามส่วน / แท็บ
 ├── lib/               # logic ล้วน (ไม่แตะ DOM) มีเทสต์คู่กันทุกไฟล์
 │   ├── jsonPath.ts    # format path, parse, flatten
 │   ├── jsonQuery.ts   # JSONPath evaluator
@@ -175,7 +177,7 @@ src/
 │   ├── commands.ts    # fuzzy filter ของ palette
 │   ├── exportHtml.ts  # สร้างเอกสาร HTML
 │   ├── recent.ts / recentStore.ts   # ไฟล์ล่าสุด (IndexedDB)
-│   ├── i18n.ts        # ข้อความ UI ภาษาอังกฤษ / ไทย และการสลับภาษา
+│   ├── i18n/          # ข้อความ UI (en.ts / th.ts) และการสลับภาษา (index.ts)
 │   ├── theme.ts / readingPrefs.ts / safeStorage.ts
 │   └── fileAccess.ts  # เปิด / บันทึกไฟล์
 └── ui/                # ส่วนที่แตะ DOM

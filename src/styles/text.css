@@ -1,0 +1,68 @@
+/* ── Text editor tab ── */
+.te-editor {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: var(--surface);
+  overflow: hidden;
+  --te-font: 13px/20px var(--mono);
+}
+.te-gutter {
+  flex: none;
+  width: calc(var(--digits, 2) * 1ch + 20px);
+  overflow: hidden;
+  padding: 10px 8px 10px 0;
+  border-right: 1px solid var(--line);
+  background: var(--paper-2);
+  color: var(--ink-soft);
+  font: var(--te-font);
+  text-align: right;
+  user-select: none;
+}
+.te-gutter-inner { white-space: pre; will-change: transform; }
+.te-surface { position: relative; flex: 1; min-width: 0; }
+.te-input {
+  display: block;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 10px 12px;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--ink);
+  font: var(--te-font);
+  resize: none;
+  tab-size: 4;
+  white-space: pre;
+  overflow: auto;
+}
+.te-wrap .te-input { white-space: pre-wrap; overflow-wrap: anywhere; }
+.te-editor:focus-within { border-color: var(--accent); }
+.te-overlay { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+.te-block, .te-hit, .te-caret { position: absolute; }
+.te-block { background: color-mix(in srgb, var(--accent) 28%, transparent); }
+.te-caret { width: 2px; margin-left: -1px; background: var(--accent); animation: te-blink 1s steps(1) infinite; }
+.te-hit { background: color-mix(in srgb, #f5c518 45%, transparent); outline: 1px solid #d4a300; }
+@keyframes te-blink { 50% { opacity: 0; } }
+/* While a column selection is active, hide the textarea's own caret / selection to avoid confusion. */
+.te-has-block .te-input { caret-color: transparent; }
+.te-has-block .te-input::selection { background: transparent; }
+.te-probe { position: absolute; visibility: hidden; white-space: pre; font: var(--te-font); }
+.te-tools {
+  padding: 3px 6px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: 12px;
+}
+.te-status { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; }
+.te-block-info { color: var(--accent); }
+.te-eol { margin-left: auto; font: 11px var(--mono); }
+.te-text-controls, .csv-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.te-text-controls[hidden], .csv-controls[hidden], .te-editor[hidden], .csv-view[hidden] { display: none; }
+

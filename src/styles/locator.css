@@ -1,0 +1,12 @@
+/* ── locator finder (reuses the two-column .json-pane layout) ── */
+.loc-list { display: flex; flex-direction: column; max-height: 38vh; overflow: auto; }
+.loc-row { display: grid; grid-template-columns: 6.5rem minmax(0, 1fr) auto auto; align-items: center; gap: 8px; padding-block: 3px; border-bottom: 1px dotted var(--line); }
+.loc-badge { padding: 1px 7px; border: 1px solid var(--line); border-radius: 9px; color: var(--ink-soft); font: 11px var(--mono); white-space: nowrap; }
+.loc-badge[data-kind='unique'] { border-color: var(--ok); color: var(--ok); }
+.loc-badge[data-kind='multi'], .loc-badge[data-kind='none'] { border-color: var(--amber); color: var(--amber); }
+.loc-stage { position: relative; flex: 1; min-height: 200px; border: 1px solid var(--line); background: #fff; }
+.loc-frame { display: block; width: 100%; height: 100%; border: 0; background: #fff; }
+.loc-box { position: absolute; outline: 2px solid var(--accent); outline-offset: -1px; pointer-events: none; }
+.loc-box.hover { outline-style: dashed; background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.loc-box.picked { background: color-mix(in srgb, var(--accent) 24%, transparent); }
+

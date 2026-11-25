@@ -1,0 +1,52 @@
+/* ── buttons ── */
+.btn {
+  padding: 6px 14px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+  transition: transform 0.12s, background 0.15s, border-color 0.15s;
+}
+.btn:hover { border-color: var(--ink); }
+.btn:active { transform: translateY(1px); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
+.btn.ghost { background: none; }
+.btn.small { padding: 2px 10px; font-size: 12px; }
+
+/* icon buttons */
+.icon { display: block; flex: none; }
+.btn.with-icon, .btn.icon-only { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+.btn.icon-only { width: 32px; height: 32px; padding: 0; border-radius: 6px; }
+.btn.icon-only.small { width: 26px; height: 26px; }
+.btn.icon-only.small .icon { width: 14px; height: 14px; }
+.btn.with-icon { border-radius: 6px; padding: 5px 12px 5px 10px; }
+.btn.with-icon.small { padding: 2px 8px 2px 6px; }
+.btn.with-icon.small .icon { width: 13px; height: 13px; }
+.btn.ghost { border-color: transparent; color: var(--ink-soft); transition: color 0.15s, background-color 0.15s, transform 0.12s; }
+.btn.ghost:hover { border-color: transparent; color: var(--ink); background: color-mix(in srgb, var(--ink) 9%, transparent); }
+.btn.ghost[aria-pressed='true'] { color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.btn.primary:hover { filter: brightness(1.08); }
+.btn:disabled { cursor: default; }
+.btn-group { display: inline-flex; gap: 2px; }
+.actions { align-items: center; }
+.lang-btn .btn-label { font: 600 11px/1 var(--mono); letter-spacing: 0.04em; }
+.btn.lang-btn { padding: 5px 8px 5px 7px; gap: 4px; }
+.actions-sep { width: 1px; height: 20px; margin-inline: 4px; background: var(--line); }
+.tab { display: inline-flex; align-items: center; gap: 6px; }
+.tab .icon { opacity: 0.7; }
+.tab[aria-selected='true'] .icon { opacity: 1; color: var(--accent); }
+.doc-add, .doc-close { display: inline-flex; align-items: center; justify-content: center; border-radius: 4px; }
+.doc-add:hover, .doc-close:hover { background: color-mix(in srgb, var(--ink) 9%, transparent); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* ── panes ── */
+.stage { min-height: 0; padding-block: 12px; }
+.pane { display: flex; flex-direction: column; gap: 8px; height: 100%; min-height: 0; }
+.pane-bar { display: flex; align-items: center; gap: 8px; }
+.hint { color: var(--ink-soft); font-size: 12px; }
+.md-host, .md-read { flex: 1; min-height: 0; }
+.md-read { overflow: auto; padding: 8px 20px; border: 1px solid var(--line); background: var(--surface); }
+.md-host .toastui-editor-defaults { font-family: var(--sans); }
+
