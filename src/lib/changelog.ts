@@ -14,6 +14,11 @@ export interface Release {
 
 export const CHANGELOG: readonly Release[] = [
   {
+    version: '1.7.1',
+    date: '2026-11-26',
+    changed: ['ปรับโครงสร้างโค้ดภายในของแท็บ PDF ให้ดูแลต่อได้ง่ายขึ้น การใช้งานยังเหมือนเดิม'],
+  },
+  {
     version: '1.7.0',
     date: '2026-11-26',
     added: [
