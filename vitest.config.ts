@@ -7,5 +7,10 @@ export default defineConfig({
     environment: 'node',
     include: ['src/**/*.test.ts'],
     pool: 'vmThreads',
+    coverage: {
+      // Count every source file, not only the ones a test happens to import.
+      include: ['src/**/*.ts'],
+      exclude: ['src/**/*.test.ts', 'src/**/*.d.ts', 'src/ui/testDom.ts'],
+    },
   },
 })
