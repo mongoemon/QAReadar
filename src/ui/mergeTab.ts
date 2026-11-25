@@ -11,7 +11,6 @@ import {
   fitChoice,
   includesLeft,
   includesRight,
-  innerDiff,
   mergeStats,
   mergeText,
   type Choice,
@@ -24,17 +23,13 @@ import type { Starter } from '../lib/samples'
 import { copyText } from './clipboard'
 import { el } from './dom'
 import { iconButton, setIconButton } from './icons'
+import { createDiffView, type Side } from './merge/diffView'
 import { errorMessage, toast } from './toast'
 import type { TabController } from './types'
-
-type Side = 'left' | 'right'
 
 const RECOMPUTE_DELAY_MS = 250
 const DEFAULT_NAME = 'merged-test-cases.txt'
 const IGNORE_WS_KEY = 'qareadar:merge-ignore-ws'
-/** Unchanged lines shown around each change; longer unchanged runs fold. */
-const CONTEXT = 3
-
 /** What the merged result is saved as. */
 const KIND: FileKind = {
   description: 'Test case',
@@ -53,42 +48,12 @@ const SOURCE_KIND: FileKind = {
 }
 
 const SIDE_LABEL: Record<Side, MessageKey> = { left: 'mg.manual', right: 'mg.automate' }
-const PICK_TIP: Record<Choice, MessageKey> = {
-  left: 'mg.pickLeft',
-  right: 'mg.pickRight',
-  both: 'mg.pickBoth',
-  none: 'mg.pickNone',
-}
-const PICK_TEXT: Record<Choice, string> = { left: 'M', right: 'A', both: 'M+A', none: '✕' }
-const ALL_PICKS: readonly Choice[] = ['left', 'right', 'both', 'none']
 const BULK: ReadonlyArray<readonly [Choice, MessageKey, MessageKey]> = [
   ['left', 'mg.allLeft', 'mg.allLeftTip'],
   ['right', 'mg.allRight', 'mg.allRightTip'],
   ['both', 'mg.allBoth', 'mg.allBothTip'],
   ['none', 'mg.allNone', 'mg.allNoneTip'],
 ]
-
-/** Picks offered for a row: one-sided rows only have their side or nothing. */
-function picksFor(row: MergeRow): readonly Choice[] {
-  if (row.left !== null && row.right !== null) return ALL_PICKS
-  return [row.left !== null ? 'left' : 'right', 'none']
-}
-
-/** Line text, with the part that differs from the paired line wrapped in <mark>. */
-function lineText(text: string | null, other: string | null): HTMLElement {
-  const span = el('span', { class: 'mtext' })
-  if (text === null) return span
-  if (other === null || text === other) {
-    span.textContent = text
-    return span
-  }
-  const { prefix, suffix } = innerDiff(text, other)
-  const middle = text.slice(prefix, text.length - suffix)
-  span.append(text.slice(0, prefix))
-  if (middle) span.append(el('mark', {}, middle))
-  span.append(text.slice(text.length - suffix))
-  return span
-}
 
 function mergedName(base: string): string {
   const dot = base.lastIndexOf('.')
@@ -188,13 +153,14 @@ export function createMergeTab(sample: { readonly manual: Starter; readonly auto
   )
 
   // ── diff view ──
-  const colLeft = el('span', { class: 'merge-tag left' })
-  const colPick = el('span', { class: 'mhead-pick' })
-  const colRight = el('span', { class: 'merge-tag right' })
-  const diffHead = el('div', { class: 'mhead' }, el('span'), colLeft, colPick, el('span'), colRight)
-  const diffRows = el('div', { class: 'mrows' })
-  const diffEmpty = el('p', { class: 'merge-empty' })
-  const diffView = el('div', { class: 'merge-diff' }, diffHead, diffRows, diffEmpty)
+  const view = createDiffView({
+    diff: () => diff,
+    choices: () => choices,
+    isEmpty: () => sources.left.input.value === '' && sources.right.input.value === '',
+    setChoice,
+    applyAll,
+    toggleSide,
+  })
 
   // ── result ──
   const resultTitle = el('span', { class: 'merge-tag result' })
@@ -215,150 +181,17 @@ export function createMergeTab(sample: { readonly manual: Starter; readonly auto
     { class: 'pane merge-pane' },
     sourcesBox,
     bar,
-    el('div', { class: 'merge-body' }, diffView, resultBox),
+    el('div', { class: 'merge-body' }, view.element, resultBox),
   )
 
   // ── state ──
   let diff: LineDiff = diffLines('', '')
   let choices: Choice[] = []
-  let rowEls: Array<HTMLElement | undefined> = []
-  let blockHeads: HTMLElement[] = []
-  let currentBlock = -1
   let recomputeTimer: number | undefined
   let handle: FileHandleLike | null = null
   let savedName: string | null = null
   let savedText = ''
   let merged = ''
-
-  // ── rendering ──
-  function pickButton(choice: Choice, attrs: Record<string, string>, tip: string): HTMLButtonElement {
-    const button = el('button', { class: `mpick-btn pick-${choice}`, type: 'button', ...attrs }, PICK_TEXT[choice])
-    button.title = tip
-    button.setAttribute('aria-label', tip)
-    return button
-  }
-
-  function rowElement(i: number): HTMLElement {
-    const row = diff.rows[i]
-    const cell = (side: Side): HTMLElement => {
-      const text = side === 'left' ? row.left : row.right
-      const other = row.kind === 'change' ? (side === 'left' ? row.right : row.left) : null
-      const node = el(
-        'div',
-        { class: `mcell ${side}${text === null ? ' empty' : ''}`, 'data-side': side, 'data-i': String(i) },
-        lineText(text, other),
-      )
-      if (text !== null) node.title = t('mg.cellTip')
-      return node
-    }
-    const pick = el('div', { class: 'mpick' })
-    if (row.kind === 'change') {
-      pick.append(...picksFor(row).map((choice) => pickButton(choice, { 'data-pick': choice, 'data-i': String(i) }, t(PICK_TIP[choice]))))
-    } else {
-      pick.append(pickButton('none', { 'data-pick': 'toggle', 'data-i': String(i), class: 'mpick-btn pick-none same-toggle' }, ''))
-    }
-    const node = el(
-      'div',
-      { class: 'mrow', 'data-kind': row.kind },
-      el('span', { class: 'mno' }, row.leftNo === null ? '' : String(row.leftNo)),
-      cell('left'),
-      pick,
-      el('span', { class: 'mno' }, row.rightNo === null ? '' : String(row.rightNo)),
-      cell('right'),
-    )
-    paintRow(node, i)
-    return node
-  }
-
-  function paintRow(node: HTMLElement, i: number): void {
-    const choice = choices[i]
-    node.dataset.choice = choice
-    for (const button of node.querySelectorAll<HTMLButtonElement>('[data-pick]')) {
-      if (button.dataset.pick === 'toggle') {
-        const dropped = choice === 'none'
-        button.setAttribute('aria-pressed', String(dropped))
-        button.title = t(dropped ? 'mg.keepSame' : 'mg.dropSame')
-        button.setAttribute('aria-label', button.title)
-      } else {
-        button.setAttribute('aria-pressed', String(button.dataset.pick === choice))
-      }
-    }
-  }
-
-  function blockHead(block: number, firstRow: number): HTMLElement {
-    let m = 0
-    let a = 0
-    for (let i = firstRow; i < diff.rows.length && diff.rows[i].block === block; i++) {
-      if (diff.rows[i].left !== null) m++
-      if (diff.rows[i].right !== null) a++
-    }
-    const buttons = ALL_PICKS.map((choice) =>
-      pickButton(choice, { 'data-block-pick': choice, 'data-block': String(block) }, t('mg.blockPick', { pick: t(PICK_TIP[choice]) })),
-    )
-    return el(
-      'div',
-      { class: 'mblock-head' },
-      el('span', { class: 'mblock-title' }, t('mg.block', { n: block + 1, total: diff.blocks })),
-      el('span', { class: 'hint' }, t('mg.blockLines', { m, a })),
-      el('span', { class: 'merge-spacer' }),
-      ...buttons,
-    )
-  }
-
-  function foldButton(from: number, to: number): HTMLElement {
-    const button = el('button', { class: 'mfold', type: 'button' }, t('mg.fold', { n: to - from }))
-    button.addEventListener('click', () => {
-      const rows: HTMLElement[] = []
-      for (let i = from; i < to; i++) {
-        const node = rowElement(i)
-        rowEls[i] = node
-        rows.push(node)
-      }
-      button.replaceWith(...rows)
-    })
-    return button
-  }
-
-  function renderDiff(): void {
-    const rows = diff.rows
-    rowEls = new Array(rows.length)
-    blockHeads = []
-    currentBlock = -1
-    const nodes: HTMLElement[] = []
-    const addRow = (i: number): void => {
-      const node = rowElement(i)
-      rowEls[i] = node
-      nodes.push(node)
-    }
-    let i = 0
-    while (i < rows.length) {
-      if (rows[i].kind === 'change') {
-        const block = rows[i].block
-        const head = blockHead(block, i)
-        blockHeads.push(head)
-        nodes.push(head)
-        while (i < rows.length && rows[i].block === block) addRow(i++)
-        continue
-      }
-      // A run of unchanged lines: keep CONTEXT lines next to each change, fold the middle.
-      let end = i
-      while (end < rows.length && rows[end].kind === 'same') end++
-      const foldFrom = i === 0 ? 0 : i + CONTEXT
-      const foldTo = end === rows.length ? end : end - CONTEXT
-      if (diff.blocks > 0 && foldTo - foldFrom > 2) {
-        for (let j = i; j < foldFrom; j++) addRow(j)
-        nodes.push(foldButton(foldFrom, foldTo))
-        for (let j = foldTo; j < end; j++) addRow(j)
-      } else {
-        for (let j = i; j < end; j++) addRow(j)
-      }
-      i = end
-    }
-    diffRows.replaceChildren(...nodes)
-    const empty = sources.left.input.value === '' && sources.right.input.value === ''
-    diffEmpty.hidden = !empty && diff.blocks > 0
-    diffEmpty.textContent = empty ? t('mg.empty') : t('mg.identical')
-  }
 
   function refreshOutput(): void {
     merged = mergeText(diff, choices)
@@ -379,7 +212,7 @@ export function createMergeTab(sample: { readonly manual: Starter; readonly auto
     const next = diffLines(left.input.value, right.input.value, { ignoreWhitespace: wsInput.checked, eol })
     choices = carry ? carryChoices(diff.rows, choices, next.rows) : defaultChoices(next.rows)
     diff = next
-    renderDiff()
+    view.render()
     refreshOutput()
   }
 
@@ -392,14 +225,13 @@ export function createMergeTab(sample: { readonly manual: Starter; readonly auto
   // ── choices ──
   function setChoice(i: number, choice: Choice): void {
     choices[i] = fitChoice(diff.rows[i], choice)
-    const node = rowEls[i]
-    if (node) paintRow(node, i)
+    view.repaint(i)
     refreshOutput()
   }
 
   function applyAll(choice: Choice, block?: number): void {
     choices = applyToChanges(diff.rows, choices, choice, block)
-    rowEls.forEach((node, i) => node && paintRow(node, i))
+    view.repaint()
     refreshOutput()
   }
 
@@ -414,38 +246,6 @@ export function createMergeTab(sample: { readonly manual: Starter; readonly auto
     const left = side === 'left' ? !includesLeft(choice) : includesLeft(choice)
     const right = side === 'right' ? !includesRight(choice) : includesRight(choice)
     setChoice(i, composeChoice(left, right))
-  }
-
-  diffRows.addEventListener('click', (ev) => {
-    const target = ev.target as HTMLElement
-    const blockBtn = target.closest<HTMLElement>('[data-block-pick]')
-    if (blockBtn) {
-      applyAll(blockBtn.dataset.blockPick as Choice, Number(blockBtn.dataset.block))
-      return
-    }
-    const pickBtn = target.closest<HTMLElement>('[data-pick]')
-    if (pickBtn) {
-      const i = Number(pickBtn.dataset.i)
-      if (pickBtn.dataset.pick === 'toggle') toggleSide(i, 'left')
-      else setChoice(i, pickBtn.dataset.pick as Choice)
-      return
-    }
-    const cell = target.closest<HTMLElement>('.mcell:not(.empty)')
-    // Selecting text to copy it must not flip the pick.
-    if (cell && !window.getSelection()?.toString()) toggleSide(Number(cell.dataset.i), cell.dataset.side as Side)
-  })
-
-  function goToBlock(delta: number): void {
-    if (blockHeads.length === 0) {
-      toast(t('mg.noChanges'))
-      return
-    }
-    blockHeads[currentBlock]?.classList.remove('current')
-    currentBlock =
-      currentBlock < 0 && delta < 0 ? blockHeads.length - 1 : (currentBlock + delta + blockHeads.length) % blockHeads.length
-    const head = blockHeads[currentBlock]
-    head.classList.add('current')
-    head.scrollIntoView({ block: 'start', behavior: 'smooth' })
   }
 
   // ── sources in / out ──
@@ -539,8 +339,8 @@ export function createMergeTab(sample: { readonly manual: Starter; readonly auto
   }
 
   wsInput.addEventListener('change', toggleIgnoreWs)
-  prevBtn.addEventListener('click', () => goToBlock(-1))
-  nextBtn.addEventListener('click', () => goToBlock(1))
+  prevBtn.addEventListener('click', () => view.goToBlock(-1))
+  nextBtn.addEventListener('click', () => view.goToBlock(1))
   swapBtn.addEventListener('click', swapSides)
   sourcesBtn.addEventListener('click', toggleSources)
   copyBtn.addEventListener('click', async () => {
@@ -551,9 +351,7 @@ export function createMergeTab(sample: { readonly manual: Starter; readonly auto
   localized(() => {
     wsText.textContent = t('mg.ignoreWs')
     bulk.setAttribute('aria-label', t('mg.bulkAria'))
-    colLeft.textContent = t('mg.manual')
-    colRight.textContent = t('mg.automate')
-    colPick.textContent = t('mg.colPick')
+    view.localize()
     resultTitle.textContent = t('mg.result')
     renderResultHint()
     output.setAttribute('aria-label', t('mg.resultAria'))
@@ -589,8 +387,8 @@ export function createMergeTab(sample: { readonly manual: Starter; readonly auto
     { id: 'merge.right', title: t('mg.cmd.allRight'), run: () => applyAll('right') },
     { id: 'merge.both', title: t('mg.cmd.allBoth'), run: () => applyAll('both') },
     { id: 'merge.none', title: t('mg.cmd.allNone'), run: () => applyAll('none') },
-    { id: 'merge.next', title: t('mg.cmd.next'), run: () => goToBlock(1) },
-    { id: 'merge.prev', title: t('mg.cmd.prev'), run: () => goToBlock(-1) },
+    { id: 'merge.next', title: t('mg.cmd.next'), run: () => view.goToBlock(1) },
+    { id: 'merge.prev', title: t('mg.cmd.prev'), run: () => view.goToBlock(-1) },
     { id: 'merge.swap', title: t('mg.cmd.swap'), run: swapSides },
     {
       id: 'merge.ws',

@@ -9,32 +9,20 @@ import {
   addDoc,
   closeDoc,
   copyName,
-  createDocSet,
   insertDocAfter,
   isDocDirty,
   keepOnly,
   markDocSaved,
   otherDocs,
-  parseDrafts,
   replaceDoc,
-  serializeDrafts,
   setActive,
   steppedId,
   updateText,
   type Doc,
   type DocSet,
 } from '../lib/docSet'
-import {
-  judgeProbe,
-  loadSession,
-  mergeRestored,
-  saveSession,
-  toSession,
-  type DiskState,
-  type Session,
-} from '../lib/docSession'
 import { buildHtmlDocument } from '../lib/exportHtml'
-import { downloadText, readHandle, statHandle } from '../lib/fileAccess'
+import { downloadText } from '../lib/fileAccess'
 import type { FileHandleLike, FileKind, OpenedFile } from '../lib/fileAccess'
 import { offsetToPos } from '../lib/findReplace'
 import { extractHeadings } from '../lib/outline'
@@ -56,10 +44,11 @@ import { computeStats } from '../lib/textStats'
 import { createDocTabStrip } from './docTabStrip'
 import { el } from './dom'
 import { createFindBar } from './findBar'
+import { createDiskSync } from './markdown/diskSync'
+import { createMarkdownSession } from './markdown/session'
 import { toast } from './toast'
 import type { TabController } from './types'
 
-const DRAFT_KEY = 'mdreadar:md-drafts'
 const FONT_KEY = 'mdreadar:read-font'
 const WIDTH_KEY = 'mdreadar:read-width'
 const SPLIT_KEY = 'mdreadar:md-split'
@@ -119,32 +108,32 @@ export function createMarkdownTab(): TabController {
   const listeners: Array<() => void> = []
 
   // State is declared before the editor so early change events never hit a TDZ.
-  /** Docs not worth remembering while clean and unlinked (starter, sample, blank new doc). */
-  const ephemeral = new Set<string>()
-  /** Docs restored from the legacy localStorage drafts; superseded by the IndexedDB session. */
-  const legacy = new Set<string>()
-  /** File lastModified when each doc was last read from / written to disk. */
-  const stamps = new Map<string, number>()
-  /** Docs whose file vanished from disk, or changed there since we read it. */
-  const diskState = new Map<string, DiskState>()
-  /** The stored session is written only after it has been read, so startup never clobbers it. */
-  let hydrated = false
-  let checking = false
+  const session = createMarkdownSession({
+    defaultName: DEFAULT_NAME,
+    makeDoc,
+    getSet: () => set,
+    setSet(next) {
+      set = next
+    },
+    stampOf: (id) => disk.stampOf(id),
+    setStamp: (id, stamp) => disk.setStamp(id, stamp),
+    restored() {
+      loadActive()
+      void disk.check()
+    },
+  })
+  const disk = createDiskSync({
+    getSet: () => set,
+    setSet(next) {
+      set = next
+    },
+    editorText: () => editor.getMarkdown(),
+    show: () => loadActive(),
+    renderTabs: () => renderDocTabs(),
+    persist: session.persist,
+  })
 
-  function restoreSet(): DocSet {
-    const drafts = parseDrafts(readStored(DRAFT_KEY))
-    if (drafts.length === 0) {
-      // First launch starts blank; samples are one click away in the top bar.
-      const blank = makeDoc(DEFAULT_NAME, '', null)
-      ephemeral.add(blank.id)
-      return createDocSet(blank)
-    }
-    const docs = drafts.map((d) => makeDoc(d.name, d.text, null, ''))
-    docs.forEach((d) => legacy.add(d.id))
-    return { docs, activeId: docs[0].id }
-  }
-
-  let set: DocSet = restoreSet()
+  let set: DocSet = session.initialSet()
   let loading = false
   let clean = false
   let sideTimer: number | undefined
@@ -160,22 +149,13 @@ export function createMarkdownTab(): TabController {
   const smallerBtn = iconButton('textSmaller', () => t('md.smaller'), { variant: 'ghost' })
   const largerBtn = iconButton('textLarger', () => t('md.larger'), { variant: 'ghost' })
   const widthBtn = iconButton('widthNormal', '', { variant: 'ghost' })
-  const refreshBtn = iconButton('refresh', () => t('md.refresh'), { variant: 'ghost refresh-btn' })
   const WIDTH_ICONS: Record<WidthPref, IconName> = { narrow: 'widthNarrow', normal: 'widthNormal', wide: 'widthWide' }
-  const diskWarnText = el('span', {})
-  const diskWarn = el(
-    'span',
-    { class: 'disk-warn', role: 'status' },
-    el('span', { class: 'disk-warn-dot', 'aria-hidden': 'true' }),
-    diskWarnText,
-  )
   const hint = el('span', { class: 'hint' })
-  diskWarn.hidden = true
   const bar = el(
     'div',
     { class: 'pane-bar' },
-    refreshBtn,
-    diskWarn,
+    disk.refreshButton,
+    disk.warning,
     el('span', { class: 'btn-group' }, outlineBtn, findBtn),
     cleanBtn,
     el('span', { class: 'btn-group' }, smallerBtn, largerBtn, widthBtn),
@@ -190,7 +170,7 @@ export function createMarkdownTab(): TabController {
     close: closeById,
     closeOthers,
     decorate: (doc) =>
-      diskState.get(doc.id) === 'missing'
+      disk.isMissing(doc.id)
         ? {
             mark: el('span', { class: 'disk-warn-dot', 'aria-label': t('md.docMissingDot') }),
             title: t('md.docMissingTip', { name: doc.name }),
@@ -280,117 +260,8 @@ export function createMarkdownTab(): TabController {
     status.textContent = t('md.stats', { words: stats.words, chars: stats.chars }) + minutes
   }
 
-  const worthKeeping = (doc: Doc): boolean =>
-    doc.handle !== null || isDocDirty(doc) || !ephemeral.has(doc.id)
-
-  const sessionOf = (): Session | null =>
-    toSession(set.docs.filter(worthKeeping), set.activeId, (id) => stamps.get(id))
-
-  function persistDrafts(): void {
-    // localStorage drafts stay as a synchronous fallback for unsaved edits.
-    writeStored(DRAFT_KEY, set.docs.some(isDocDirty) ? serializeDrafts(set) : null)
-    if (hydrated) void saveSession(sessionOf())
-  }
-
-  /** Restore the documents that were open last time — text first, links to disk second. */
-  async function hydrate(): Promise<void> {
-    const session = await loadSession()
-    hydrated = true
-    if (!session) {
-      persistDrafts()
-      return
-    }
-    // Keep anything the user opened or typed while the session was loading.
-    const kept = set.docs.filter((d) => !legacy.has(d.id) && worthKeeping(d))
-    const restored = session.docs.map((s) => {
-      const doc = makeDoc(s.name, s.text, s.handle, s.savedText)
-      if (s.stamp !== null) stamps.set(doc.id, s.stamp)
-      return doc
-    })
-    set = mergeRestored(restored, session.activeIndex, kept, set.activeId)
-    loadActive()
-    void checkDisk()
-  }
-
-  /**
-   * Background probe (no permission prompts): flag files that disappeared or were edited
-   * elsewhere. Text in the app is never touched here.
-   */
-  async function checkDisk(): Promise<void> {
-    if (checking) return
-    checking = true
-    try {
-      let changed = false
-      for (const doc of set.docs) {
-        if (!doc.handle) continue
-        const result = await statHandle(doc.handle)
-        if (result === 'unknown') continue
-        const before = diskState.get(doc.id)
-        const { state: next, stamp } = judgeProbe(stamps.get(doc.id), result)
-        if (stamp !== undefined) stamps.set(doc.id, stamp)
-        if (next) diskState.set(doc.id, next)
-        else diskState.delete(doc.id)
-        changed ||= before !== next
-      }
-      if (changed) renderDocTabs()
-    } finally {
-      checking = false
-    }
-  }
-
-  async function refreshFromDisk(): Promise<void> {
-    const doc = activeDoc(set)
-    if (!doc.handle) {
-      toast(t('md.notLinked'), true)
-      return
-    }
-    const result = await readHandle(doc.handle, true)
-    if (result.status === 'denied') {
-      toast(t('msg.readDenied'), true)
-      return
-    }
-    if (result.status === 'missing') {
-      diskState.set(doc.id, 'missing')
-      renderDocTabs()
-      toast(t('md.missing', { name: doc.name }), true)
-      return
-    }
-    const current = activeDoc(set)
-    if (current.id !== doc.id) return // user switched documents while we were reading
-    if (isDocDirty(current) && !window.confirm(t('md.confirmReload', { name: current.name }))) {
-      return
-    }
-    const before = editor.getMarkdown()
-    const { file } = result
-    if (file.lastModified !== undefined) stamps.set(doc.id, file.lastModified)
-    diskState.delete(doc.id)
-    set = replaceDoc(set, doc.id, { ...current, name: file.name, text: file.text, savedText: file.text })
-    loadActive()
-    toast(t(editor.getMarkdown() === before ? 'md.upToDate' : 'md.reloaded', { name: file.name }))
-  }
-
-  async function restamp(id: string, handle: FileHandleLike | null): Promise<void> {
-    if (!handle) return
-    const result = await statHandle(handle)
-    if (typeof result === 'number') stamps.set(id, result)
-    persistDrafts()
-  }
-
-  function renderDiskStatus(): void {
-    const doc = activeDoc(set)
-    const state = diskState.get(doc.id)
-    diskWarn.hidden = state !== 'missing'
-    refreshBtn.disabled = !doc.handle
-    refreshBtn.classList.toggle('has-update', state === 'changed')
-    refreshBtn.title = !doc.handle
-      ? t('md.refreshNoFile')
-      : state === 'changed'
-        ? t('md.refreshChanged')
-        : t('md.refreshTip')
-  }
-
   function renderDocTabs(): void {
-    renderDiskStatus()
+    disk.render()
     docStrip.render()
   }
 
@@ -399,7 +270,7 @@ export function createMarkdownTab(): TabController {
     sideTimer = window.setTimeout(() => {
       refreshOutline()
       refreshStatus()
-      persistDrafts()
+      session.persist()
       renderDocTabs()
     }, SIDE_EFFECT_DELAY_MS)
   }
@@ -427,7 +298,7 @@ export function createMarkdownTab(): TabController {
     renderDocTabs()
     refreshOutline()
     refreshStatus()
-    persistDrafts()
+    session.persist()
     notify()
   }
 
@@ -438,9 +309,7 @@ export function createMarkdownTab(): TabController {
   }
 
   function newDocument(): void {
-    const doc = makeDoc(DEFAULT_NAME, '', null)
-    ephemeral.add(doc.id)
-    set = addDoc(set, doc)
+    set = addDoc(set, session.blankDoc())
     loadActive()
     editor.focus()
   }
@@ -461,10 +330,7 @@ export function createMarkdownTab(): TabController {
     const others = otherDocs(set, id)
     const dirty = others.filter(isDocDirty)
     if (dirty.length > 0 && !window.confirm(t('md.confirmCloseOthers', { n: dirty.length }))) return
-    for (const doc of others) {
-      stamps.delete(doc.id)
-      diskState.delete(doc.id)
-    }
+    for (const doc of others) disk.forget(doc.id)
     set = keepOnly(set, id)
     loadActive()
   }
@@ -478,13 +344,8 @@ export function createMarkdownTab(): TabController {
     const doc = set.docs.find((d) => d.id === id)
     if (!doc) return
     if (isDocDirty(doc) && !window.confirm(t('md.confirmClose', { name: doc.name }))) return
-    set = closeDoc(set, id, () => {
-      const fresh = makeDoc(DEFAULT_NAME, '', null)
-      ephemeral.add(fresh.id)
-      return fresh
-    })
-    stamps.delete(id)
-    diskState.delete(id)
+    set = closeDoc(set, id, session.blankDoc)
+    disk.forget(id)
     loadActive()
   }
 
@@ -601,16 +462,10 @@ export function createMarkdownTab(): TabController {
   smallerBtn.addEventListener('click', () => adjustFont(-1))
   largerBtn.addEventListener('click', () => adjustFont(1))
   widthBtn.addEventListener('click', cycleColumnWidth)
-  refreshBtn.addEventListener('click', () => void refreshFromDisk().catch((e) => toast(String(e), true)))
-  // Re-check files when the user comes back from another app (where they may have edited them).
-  window.addEventListener('focus', () => void checkDisk())
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') void checkDisk()
-  })
   // The debounced save may not have run yet: flush the latest text before the page goes away.
   window.addEventListener('pagehide', () => {
     window.clearTimeout(sideTimer)
-    persistDrafts()
+    session.persist()
   })
 
   function renderWidthBtn(): void {
@@ -629,15 +484,14 @@ export function createMarkdownTab(): TabController {
 
   applyPrefs()
   loadActive()
-  void hydrate()
+  void session.hydrate()
   // Tab tooltips and the hint show the current shortcuts.
   withShortcuts(renderDocTabs)
   withShortcuts(renderHint)
 
   // Static chrome and every piece of rendered text follow the UI language.
   localized(() => {
-    diskWarn.title = t('md.diskWarnTip')
-    diskWarnText.textContent = t('md.diskWarn')
+    disk.localize()
     renderHint()
     outlineList.setAttribute('aria-label', t('md.outlineAria'))
     splitReset.title = t('md.splitReset')
@@ -651,7 +505,7 @@ export function createMarkdownTab(): TabController {
   })
 
   const commands = (): Command[] => [
-    { id: 'md.refresh', title: t('md.cmd.refresh'), run: () => void refreshFromDisk().catch((e) => toast(String(e), true)) },
+    { id: 'md.refresh', title: t('md.cmd.refresh'), run: disk.refresh },
     { id: 'md.clean', title: t('md.cmd.clean'), run: () => setClean(!clean) },
     { id: 'md.outline', title: t('md.cmd.outline'), run: () => setOutlineVisible(Boolean(outline.hidden)) },
     { id: 'md.find', title: t('md.cmd.find'), run: () => findBar.open(false) },
@@ -687,15 +541,15 @@ export function createMarkdownTab(): TabController {
     open(file: OpenedFile): void {
       if (file.sample) {
         // The same sample opened again (and untouched): just bring its tab forward.
-        const existing = set.docs.find((d) => ephemeral.has(d.id) && !d.handle && !isDocDirty(d) && d.name === file.name)
+        const existing = set.docs.find((d) => session.isEphemeral(d.id) && !d.handle && !isDocDirty(d) && d.name === file.name)
         if (existing) {
           switchTo(existing.id)
           return
         }
       }
       const doc = makeDoc(file.name, file.text, file.handle)
-      if (file.sample) ephemeral.add(doc.id)
-      if (file.handle && file.lastModified !== undefined) stamps.set(doc.id, file.lastModified)
+      if (file.sample) session.markEphemeral(doc.id)
+      if (file.handle && file.lastModified !== undefined) disk.setStamp(doc.id, file.lastModified)
       const current = activeDoc(set)
       const replaceable = !current.handle && !isDocDirty(current) && current.name === DEFAULT_NAME
       set = replaceable ? { ...replaceDoc(set, current.id, doc), activeId: doc.id } : addDoc(set, doc)
@@ -709,11 +563,10 @@ export function createMarkdownTab(): TabController {
       const id = activeDoc(set).id
       const text = editor.getMarkdown()
       set = markDocSaved(updateText(set, id, text), id, savedName, savedHandle, text)
-      // Our own write is not an "external change", and a saved file exists on disk again.
-      diskState.delete(id)
+      disk.saved(id)
       renderDocTabs()
-      persistDrafts()
-      void restamp(id, savedHandle)
+      session.persist()
+      void disk.restamp(id, savedHandle)
       notify()
     },
     isDirty: () => set.docs.some(isDocDirty),

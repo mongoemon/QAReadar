@@ -1,7 +1,7 @@
 import './style.css'
 import type { Command } from './lib/commands'
 import { attachChangelog } from './ui/changelog'
-import { openTextFile, readFile, readHandle, saveTextFile, type FileHandleLike, type FileKind, type OpenedFile } from './lib/fileAccess'
+import { openTextFile, readHandle, saveTextFile, type FileHandleLike, type FileKind, type OpenedFile } from './lib/fileAccess'
 import { extensionOf, looksBinary, sniffKind, type SniffedKind } from './lib/fileKind'
 import { makeRecentId } from './lib/recent'
 import { listRecent, saveRecent, type StoredRecent } from './lib/recentStore'
@@ -9,6 +9,8 @@ import { readStored, writeStored } from './lib/safeStorage'
 import { isThemePref, nextTheme, resolveDark, type ThemePref } from './lib/theme'
 import { getLang, localized, nextLang, setLang, t, type MessageKey } from './lib/i18n'
 import { el } from './ui/dom'
+import { attachFileDrop } from './ui/dragDrop'
+import { createShortcutHandler } from './ui/shortcutDispatcher'
 import { icon, iconButton, setIconButton, type IconName } from './ui/icons'
 import { createJsonTab } from './ui/jsonTab'
 import { createLocatorTab } from './ui/locatorTab'
@@ -19,7 +21,7 @@ import { createPalette } from './ui/palette'
 import { createTextTab } from './ui/textTab'
 import { STARTER_CSV, STARTER_HTML, STARTER_JSON, STARTER_MARKDOWN, STARTER_MERGE, STARTER_TEXT, type Starter } from './lib/samples'
 import { closeMenu, showMenu } from './ui/menu'
-import { comboFor, comboFromEvent, scopeOf, shortcutLabel, withShortcuts } from './lib/shortcuts'
+import { shortcutLabel, withShortcuts } from './lib/shortcuts'
 import { createShortcutsDialog, type ShortcutGroup } from './ui/shortcutsDialog'
 import { errorMessage, toast } from './ui/toast'
 import type { TabController } from './ui/types'
@@ -359,96 +361,28 @@ commandBtn.addEventListener('click', () => palette.open())
 shortcutsBtn.addEventListener('click', () => shortcuts.open())
 zenExit.addEventListener('click', () => setFocusMode(false))
 
-/**
- * One dispatcher for every shortcut (see lib/shortcuts.ts). Capture phase, so a bound combo
- * beats the editors' and the browser's own handling; unbound keys pass through untouched.
- * The active tab's commands win over global ones when both use the same keys.
- */
+// Capture phase: see createShortcutHandler.
 window.addEventListener(
   'keydown',
-  (ev) => {
-    if (ev.isComposing || shortcuts.isOpen()) return
-    if (ev.key === 'Escape' && document.body.classList.contains('zen')) {
-      setFocusMode(false)
-      return
-    }
-    // Plain typing never matches a binding (only modifier combos and F-keys are bindable).
-    if (!ev.ctrlKey && !ev.altKey && !ev.metaKey && !/^F\d{1,2}$/.test(ev.code)) return
-    const combo = comboFromEvent(ev)
-    if (!combo || palette.isOpen()) return
-    const candidates = [...(active.commands?.() ?? []), ...globalCommands()]
-    const command = candidates.find((c) => comboFor(c.id) === combo && (scopeOf(c.id) === 'global' || scopeOf(c.id) === active.id))
-    if (!command) return
-    ev.preventDefault()
-    ev.stopPropagation()
-    command.run()
-  },
+  createShortcutHandler({
+    isEditingShortcuts: () => shortcuts.isOpen(),
+    isPaletteOpen: () => palette.isOpen(),
+    isZen: () => document.body.classList.contains('zen'),
+    exitZen: () => setFocusMode(false),
+    activeTab: () => active.id,
+    commands: () => [...(active.commands?.() ?? []), ...globalCommands()],
+  }),
   true,
 )
 
-interface DroppedItem {
-  readonly file: File
-  readonly handle: Promise<FileHandleLike | null>
+function openDropped(file: OpenedFile, target: EventTarget | null): void {
+  // A tab may claim drops onto its own surface (the merge tab: onto Manual or Automate).
+  if (active.acceptDrop?.(file, target)) return
+  const tab = tabFor(file)
+  if (tab) load(tab, file)
+  else toast(t('msg.unsupported', { name: file.name }), true)
 }
-
-/** Must run synchronously inside the drop event: DataTransfer items expire afterwards. */
-function collectDropped(transfer: DataTransfer): DroppedItem[] {
-  return [...transfer.items].flatMap((item): DroppedItem[] => {
-    const file = item.getAsFile()
-    if (!file) return []
-    const getHandle = (item as unknown as { getAsFileSystemHandle?: () => Promise<unknown> }).getAsFileSystemHandle
-    const handle = getHandle
-      ? getHandle.call(item).then((h) => ((h as { kind?: string } | null)?.kind === 'file' ? (h as FileHandleLike) : null), () => null)
-      : Promise.resolve(null)
-    return [{ file, handle }]
-  })
-}
-
-const carriesFiles = (ev: DragEvent): boolean => ev.dataTransfer?.types.includes('Files') ?? false
-
-// Capture phase: file drops must reach us before the editors. Otherwise the WYSIWYG editor
-// (ProseMirror + Toast UI) handles them itself — e.g. it embeds a dropped image as a multi-MB
-// base64 data URL and stops propagation, which can hang the page.
-// Text/HTML drags (moving a selection inside an editor) are left alone.
-window.addEventListener(
-  'dragover',
-  (ev) => {
-    ev.preventDefault()
-    if (!carriesFiles(ev)) return
-    ev.stopPropagation()
-    if (ev.dataTransfer) ev.dataTransfer.dropEffect = 'copy'
-  },
-  true,
-)
-window.addEventListener(
-  'drop',
-  (ev) => {
-    if (!carriesFiles(ev) || !ev.dataTransfer) return
-    ev.preventDefault()
-    ev.stopPropagation()
-    openDropped(ev.dataTransfer, ev.target)
-  },
-  true,
-)
-// Anything else that reaches the window unhandled must not make the browser navigate away.
-window.addEventListener('drop', (ev) => ev.preventDefault())
-
-function openDropped(transfer: DataTransfer, target: EventTarget | null): void {
-  const dropped = collectDropped(transfer)
-  void guarded(async () => {
-    for (const { file, handle } of dropped) {
-      const opened = await readFile(file, await handle)
-      // A tab may claim drops onto its own surface (the merge tab: onto Manual or Automate).
-      if (active.acceptDrop?.(opened, target)) continue
-      const tab = tabFor(opened)
-      if (!tab) {
-        toast(t('msg.unsupported', { name: file.name }), true)
-        continue
-      }
-      load(tab, opened)
-    }
-  })
-}
+attachFileDrop(window, { run: (action) => void guarded(action), open: openDropped })
 
 window.addEventListener('beforeunload', (ev) => {
   if (tabs.some((tab) => tab.isDirty())) ev.preventDefault()

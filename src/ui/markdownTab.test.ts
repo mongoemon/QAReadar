@@ -1,6 +1,6 @@
 // Characterization tests: they pin what the Markdown tab does today, ahead of the refactor.
 // Toast UI needs a real browser, so it is replaced by a text-only stand-in.
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { OpenedFile } from '../lib/fileAccess'
 import { docNames, installDom } from './testDom'
 
@@ -38,6 +38,9 @@ vi.mock('./menu', () => ({
 }))
 
 let dom: ReturnType<typeof installDom>
+
+// Cancels the tab's debounced side effects, which would otherwise fire after the DOM is gone.
+afterEach(() => dom.fire(dom.window as unknown as EventTarget, 'pagehide'))
 
 beforeEach(() => {
   vi.resetModules()

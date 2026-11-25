@@ -182,6 +182,9 @@ src/
 │   └── fileAccess.ts  # เปิด / บันทึกไฟล์
 └── ui/                # ส่วนที่แตะ DOM
     ├── markdownTab.ts, findBar.ts, docTabStrip.ts (แถบเอกสารของ Markdown / Text)
+    ├── markdown/      # แท็บ Markdown: session (จำเอกสาร), diskSync (ตรวจไฟล์บนดิสก์)
+    ├── mergeTab.ts, merge/diffView.ts   # Diff & Merge และส่วนวาด diff
+    ├── dragDrop.ts, shortcutDispatcher.ts   # ลากไฟล์มาวาง และส่งต่อคีย์ลัด
     ├── textTab.ts, csvTable.ts
     ├── text/          # แท็บ Text: splits, pane, overlay, columnSelect, editing
     ├── jsonTab.ts, jsonTree.ts
