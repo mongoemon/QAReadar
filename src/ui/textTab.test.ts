@@ -3,6 +3,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { OpenedFile } from '../lib/fileAccess'
 import { docNames, installDom } from './testDom'
 
+const menu = vi.hoisted(() => ({ items: [] as Array<{ label: string; disabled?: boolean; run(): void }> }))
+vi.mock('./menu', () => ({
+  showMenu: (items: typeof menu.items) => {
+    menu.items = items
+  },
+}))
+
 let dom: ReturnType<typeof installDom>
 
 beforeEach(() => {
@@ -117,6 +124,26 @@ describe('Text tab documents', () => {
     expect(names()).toEqual(['b.txt'])
     dom.fire(el.querySelector('.doc-tabs')!, 'dblclick')
     expect(names()).toEqual(['b.txt', 'untitled.txt'])
+  })
+
+  it('closes the other documents after confirming the unsaved ones', async () => {
+    const { tab, el, type, names } = await setup()
+    tab.open(file('a.txt', '1'))
+    tab.open(file('b.txt', '2'))
+    type('changed')
+    tab.open(file('c.txt', '3'))
+    const choose = (index: number, label: string): void => {
+      dom.fire(el.querySelectorAll('.doc-item')[index], 'contextmenu', { clientX: 0, clientY: 0 })
+      menu.items.find((item) => item.label === label)!.run()
+    }
+    dom.confirm.mockReturnValueOnce(false)
+    choose(0, 'Close other tabs')
+    expect(names()).toEqual(['a.txt', '● b.txt', 'c.txt'])
+    choose(0, 'Close other tabs')
+    expect(dom.confirm).toHaveBeenCalledTimes(2)
+    expect(names()).toEqual(['a.txt'])
+    expect(tab.snapshot().text).toBe('1')
+    expect(tab.isDirty()).toBe(false)
   })
 
   it('moves a document into a new split and removes the split when it closes', async () => {

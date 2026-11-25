@@ -20,9 +20,12 @@ import {
   createDocSet,
   insertDocAfter,
   isDocDirty,
+  keepOnly,
   markDocSaved,
+  otherDocs,
   replaceDoc,
   setActive,
+  steppedId,
   updateText,
   type Doc,
   type DocSet,
@@ -48,10 +51,11 @@ import {
   type TextToolId,
 } from '../lib/textTools'
 import { createCsvView } from './csvTable'
+import { createDocTabStrip } from './docTabStrip'
 import { el } from './dom'
 import { createFindBar } from './findBar'
-import { icon, iconButton, setIconButton } from './icons'
-import { showMenu, type MenuItem } from './menu'
+import { iconButton, setIconButton } from './icons'
+import type { MenuItem } from './menu'
 import { scrollOffsetIntoView } from './textareaScroll'
 import { toast } from './toast'
 import type { TabController } from './types'
@@ -99,12 +103,6 @@ interface DocView {
   readonly selEnd: number
   readonly scrollTop: number
   readonly scrollLeft: number
-}
-
-/** "Label (shortcut)" for a tooltip, or just the label when the command has no shortcut. */
-function withKey(label: string, id: string): string {
-  const key = shortcutLabel(id)
-  return key ? `${label} (${key})` : label
 }
 
 let docSeq = 0
@@ -238,8 +236,17 @@ function createTextPane(host: PaneHost): TextPane {
   csv.controls.hidden = true
   bar.insertBefore(csv.controls, spacer)
 
-  const docStrip = el('div', { class: 'doc-tabs', role: 'tablist' })
-  const element = el('section', { class: 'pane te-pane' }, bar, docStrip, findBar.element, editor, csv.element, status)
+  const docStrip = createDocTabStrip({
+    commands: { newDoc: 'text.new', duplicate: 'text.duplicateDoc', close: 'text.close' },
+    getSet: () => set,
+    newDocument,
+    switchTo,
+    duplicate: duplicateById,
+    close: closeById,
+    closeOthers,
+    extraItems: (id) => host.splitItems(api, id),
+  })
+  const element = el('section', { class: 'pane te-pane' }, bar, docStrip.element, findBar.element, editor, csv.element, status)
 
   // ── geometry (monospace font, wrap off) ──
   let charWidth = 0
@@ -881,11 +888,12 @@ function createTextPane(host: PaneHost): TextPane {
 
   function closeOthers(id: string): void {
     stash()
-    const dirty = set.docs.filter((d) => d.id !== id && isDocDirty(d))
+    const others = otherDocs(set, id)
+    const dirty = others.filter(isDocDirty)
     if (dirty.length > 0 && !window.confirm(t('md.confirmCloseOthers', { n: dirty.length }))) return
-    for (const doc of set.docs) if (doc.id !== id) forget(doc.id)
+    for (const doc of others) forget(doc.id)
     const wasActive = id === set.activeId
-    set = { docs: set.docs.filter((d) => d.id === id), activeId: id }
+    set = keepOnly(set, id)
     if (wasActive) renderDocTabs()
     else loadActive()
     notify()
@@ -893,24 +901,7 @@ function createTextPane(host: PaneHost): TextPane {
 
   /** Move to the next (+1) or previous (-1) document tab, wrapping around. */
   function cycleDoc(step: number): void {
-    const index = set.docs.findIndex((d) => d.id === set.activeId)
-    const next = set.docs[(index + step + set.docs.length) % set.docs.length]
-    if (next) switchTo(next.id)
-  }
-
-  function showDocMenu(id: string, at: HTMLElement | { x: number; y: number }): void {
-    const others = set.docs.filter((d) => d.id !== id)
-    showMenu(
-      [
-        { label: t('md.newDoc'), icon: 'plus', hint: shortcutLabel('text.new'), run: newDocument },
-        { label: t('md.duplicateDoc'), icon: 'duplicate', hint: shortcutLabel('text.duplicateDoc'), run: () => duplicateById(id) },
-        { label: t('md.closeTip'), icon: 'close', hint: shortcutLabel('text.close'), run: () => closeById(id) },
-        { label: t('md.closeOthers'), disabled: others.length === 0, run: () => closeOthers(id) },
-        ...host.splitItems(api, id),
-      ],
-      at,
-      t('md.docMenuAria'),
-    )
+    switchTo(steppedId(set, step))
   }
 
   function takeDoc(id: string): DocEntry | null {
@@ -941,55 +932,8 @@ function createTextPane(host: PaneHost): TextPane {
   }
 
   function renderDocTabs(): void {
-    const addBtn = el('button', { class: 'doc-add', type: 'button', 'aria-label': t('md.newDoc'), title: withKey(t('md.newDoc'), 'text.new') }, icon('plus', 14))
-    addBtn.addEventListener('click', newDocument)
-    docStrip.replaceChildren(
-      ...set.docs.map((doc) => {
-        const selected = doc.id === set.activeId
-        const tab = el(
-          'button',
-          { class: 'doc-tab', role: 'tab', type: 'button', 'aria-selected': String(selected), title: doc.name },
-          isDocDirty(doc) ? '● ' : '',
-          doc.name,
-        )
-        tab.addEventListener('click', () => switchTo(doc.id))
-        const close = el('button', { class: 'doc-close', type: 'button', 'aria-label': t('md.closeDoc', { name: doc.name }), title: withKey(t('md.closeTip'), 'text.close') }, icon('close', 12))
-        close.addEventListener('click', () => closeById(doc.id))
-        const item = el('span', { class: selected ? 'doc-item active' : 'doc-item' }, tab, close)
-        item.addEventListener('contextmenu', (ev) => {
-          ev.preventDefault()
-          ev.stopPropagation()
-          switchTo(doc.id)
-          showDocMenu(doc.id, { x: ev.clientX, y: ev.clientY })
-        })
-        // Shift+F10 / the context-menu key on a focused tab opens the same menu.
-        tab.addEventListener('keydown', (ev) => {
-          if (ev.key !== 'ContextMenu' && !(ev.shiftKey && ev.key === 'F10')) return
-          ev.preventDefault()
-          switchTo(doc.id)
-          showDocMenu(doc.id, tab)
-        })
-        // Middle-click closes, as in a browser.
-        item.addEventListener('auxclick', (ev) => {
-          if (ev.button !== 1) return
-          ev.preventDefault()
-          closeById(doc.id)
-        })
-        return item
-      }),
-      addBtn,
-    )
+    docStrip.render()
   }
-
-  // Right-click on the empty part of the tab strip: just "New document".
-  docStrip.addEventListener('contextmenu', (ev) => {
-    ev.preventDefault()
-    showMenu([{ label: t('md.newDoc'), icon: 'plus', hint: shortcutLabel('text.new'), run: newDocument }], { x: ev.clientX, y: ev.clientY })
-  })
-  // Double-click the empty part of the strip: new document.
-  docStrip.addEventListener('dblclick', (ev) => {
-    if (ev.target === docStrip) newDocument()
-  })
 
   input.wrap = wrap ? 'soft' : 'off'
   editor.classList.toggle('te-wrap', wrap)
@@ -1004,7 +948,6 @@ function createTextPane(host: PaneHost): TextPane {
     renderTableBtn()
     renderWrapBtn()
     renderTools()
-    docStrip.setAttribute('aria-label', t('md.docsAria'))
     renderDocTabs()
     refreshStatus()
   })

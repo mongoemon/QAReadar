@@ -7,10 +7,13 @@ import {
   createDocSet,
   insertDocAfter,
   isDocDirty,
+  keepOnly,
   markDocSaved,
+  otherDocs,
   parseDrafts,
   serializeDrafts,
   setActive,
+  steppedId,
   updateText,
   type Doc,
 } from './docSet'
@@ -114,5 +117,40 @@ describe('copyName', () => {
   it('handles names without an extension and dotfiles', () => {
     expect(copyName('README', [])).toBe('README (copy)')
     expect(copyName('.env', [])).toBe('.env (copy)')
+  })
+})
+
+describe('closing the other documents', () => {
+  const three = () => addDoc(addDoc(createDocSet(doc('a')), doc('b')), doc('c'))
+
+  it('lists every document but the given one', () => {
+    expect(otherDocs(three(), 'b').map((d) => d.id)).toEqual(['a', 'c'])
+  })
+
+  it('keeps only that document and activates it without mutating the old set', () => {
+    const set = three()
+    const kept = keepOnly(set, 'b')
+    expect(kept.docs.map((d) => d.id)).toEqual(['b'])
+    expect(kept.activeId).toBe('b')
+    expect(set.docs).toHaveLength(3)
+  })
+
+  it('leaves the set alone for an unknown id', () => {
+    const set = three()
+    expect(keepOnly(set, 'zzz')).toBe(set)
+  })
+})
+
+describe('steppedId', () => {
+  const set = addDoc(addDoc(createDocSet(doc('a')), doc('b')), doc('c'))
+
+  it('moves forwards and backwards, wrapping around', () => {
+    expect(steppedId(set, 1)).toBe('a')
+    expect(steppedId(set, -1)).toBe('b')
+    expect(steppedId(setActive(set, 'a'), -1)).toBe('c')
+  })
+
+  it('stays put with a single document', () => {
+    expect(steppedId(createDocSet(doc('a')), 1)).toBe('a')
   })
 })

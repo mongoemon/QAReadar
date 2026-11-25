@@ -30,6 +30,13 @@ vi.mock('@toast-ui/editor', () => ({
 vi.mock('@toast-ui/editor/dist/toastui-editor.css', () => ({}))
 vi.mock('@toast-ui/editor/dist/theme/toastui-editor-dark.css', () => ({}))
 
+const menu = vi.hoisted(() => ({ items: [] as Array<{ label: string; disabled?: boolean; run(): void }> }))
+vi.mock('./menu', () => ({
+  showMenu: (items: typeof menu.items) => {
+    menu.items = items
+  },
+}))
+
 let dom: ReturnType<typeof installDom>
 
 beforeEach(() => {
@@ -126,5 +133,35 @@ describe('Markdown tab documents', () => {
     tab.open(file('s.md', 'demo', { sample: true }))
     expect(names()).toEqual(['s.md', 'b.md'])
     expect(tab.snapshot().name).toBe('s.md')
+  })
+
+  it('closes the other documents after confirming the unsaved ones', async () => {
+    const { tab, el, type, names } = await setup()
+    tab.open(file('a.md', '1'))
+    tab.open(file('b.md', '2'))
+    type('changed')
+    tab.open(file('c.md', '3'))
+    const choose = (index: number, label: string): void => {
+      dom.fire(el.querySelectorAll('.doc-item')[index], 'contextmenu', { clientX: 0, clientY: 0 })
+      menu.items.find((item) => item.label === label)!.run()
+    }
+    dom.confirm.mockReturnValueOnce(false)
+    choose(0, 'Close other tabs')
+    expect(names()).toEqual(['a.md', '● b.md', 'c.md'])
+    choose(0, 'Close other tabs')
+    expect(dom.confirm).toHaveBeenCalledTimes(2)
+    expect(names()).toEqual(['a.md'])
+    expect(tab.snapshot().text).toBe('1')
+    expect(tab.isDirty()).toBe(false)
+  })
+
+  it('closes on middle click and creates on double click of the empty strip', async () => {
+    const { tab, el, names } = await setup()
+    tab.open(file('a.md', '1'))
+    tab.open(file('b.md', '2'))
+    dom.fire(el.querySelectorAll('.doc-item')[0], 'auxclick', { button: 1 })
+    expect(names()).toEqual(['b.md'])
+    dom.fire(el.querySelector('.doc-tabs')!, 'dblclick')
+    expect(names()).toEqual(['b.md', 'untitled.md'])
   })
 })

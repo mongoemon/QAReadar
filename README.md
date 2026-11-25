@@ -181,7 +181,7 @@ src/
 │   ├── theme.ts / readingPrefs.ts / safeStorage.ts
 │   └── fileAccess.ts  # เปิด / บันทึกไฟล์
 └── ui/                # ส่วนที่แตะ DOM
-    ├── markdownTab.ts, findBar.ts
+    ├── markdownTab.ts, findBar.ts, docTabStrip.ts (แถบเอกสารของ Markdown / Text)
     ├── jsonTab.ts, jsonTree.ts
     ├── locatorTab.ts, locatorPreview.ts, textareaScroll.ts
     └── palette.ts, icons.ts, toast.ts, clipboard.ts, dom.ts, types.ts

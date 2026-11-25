@@ -3,7 +3,7 @@ import '@toast-ui/editor/dist/toastui-editor.css'
 import '@toast-ui/editor/dist/theme/toastui-editor-dark.css'
 import type { Command } from '../lib/commands'
 import { localized, t } from '../lib/i18n'
-import { icon, iconButton, setIconButton, type IconName } from './icons'
+import { iconButton, setIconButton, type IconName } from './icons'
 import {
   activeDoc,
   addDoc,
@@ -12,11 +12,14 @@ import {
   createDocSet,
   insertDocAfter,
   isDocDirty,
+  keepOnly,
   markDocSaved,
+  otherDocs,
   parseDrafts,
   replaceDoc,
   serializeDrafts,
   setActive,
+  steppedId,
   updateText,
   type Doc,
   type DocSet,
@@ -50,9 +53,9 @@ import {
 import { readStored, writeStored } from '../lib/safeStorage'
 import { keyHint, shortcutLabel, withShortcuts } from '../lib/shortcuts'
 import { computeStats } from '../lib/textStats'
+import { createDocTabStrip } from './docTabStrip'
 import { el } from './dom'
 import { createFindBar } from './findBar'
-import { showMenu } from './menu'
 import { toast } from './toast'
 import type { TabController } from './types'
 
@@ -68,12 +71,6 @@ const KIND: FileKind = {
   description: 'Markdown',
   mime: 'text/markdown',
   extensions: ['md', 'markdown', 'txt'],
-}
-
-/** "Label (shortcut)" for a tooltip, or just the label when the command has no shortcut. */
-function withKey(label: string, id: string): string {
-  const key = shortcutLabel(id)
-  return key ? `${label} (${key})` : label
 }
 
 let docSeq = 0
@@ -184,7 +181,22 @@ export function createMarkdownTab(): TabController {
     el('span', { class: 'btn-group' }, smallerBtn, largerBtn, widthBtn),
     hint,
   )
-  const docStrip = el('div', { class: 'doc-tabs', role: 'tablist' })
+  const docStrip = createDocTabStrip({
+    commands: { newDoc: 'md.new', duplicate: 'md.duplicate', close: 'md.close' },
+    getSet: () => set,
+    newDocument,
+    switchTo,
+    duplicate: duplicateById,
+    close: closeById,
+    closeOthers,
+    decorate: (doc) =>
+      diskState.get(doc.id) === 'missing'
+        ? {
+            mark: el('span', { class: 'disk-warn-dot', 'aria-label': t('md.docMissingDot') }),
+            title: t('md.docMissingTip', { name: doc.name }),
+          }
+        : null,
+  })
   const outlineList = el('nav', { class: 'outline-list' })
   const outline = el('aside', { class: 'md-outline' }, outlineList)
   outline.hidden = true
@@ -222,7 +234,7 @@ export function createMarkdownTab(): TabController {
     },
   })
 
-  const element = el('section', { class: 'pane md-pane' }, bar, docStrip, findBar.element, body, status)
+  const element = el('section', { class: 'pane md-pane' }, bar, docStrip.element, findBar.element, body, status)
 
   // ── helpers ──
   const notify = (): void => listeners.forEach((listener) => listener())
@@ -379,46 +391,7 @@ export function createMarkdownTab(): TabController {
 
   function renderDocTabs(): void {
     renderDiskStatus()
-    const addBtn = el('button', { class: 'doc-add', type: 'button', 'aria-label': t('md.newDoc'), title: withKey(t('md.newDoc'), 'md.new') }, icon('plus', 14))
-    addBtn.addEventListener('click', newDocument)
-    docStrip.replaceChildren(
-      ...set.docs.map((doc) => {
-        const selected = doc.id === set.activeId
-        const missing = diskState.get(doc.id) === 'missing'
-        const tab = el(
-          'button',
-          {
-            class: 'doc-tab',
-            role: 'tab',
-            type: 'button',
-            'aria-selected': String(selected),
-            title: missing ? t('md.docMissingTip', { name: doc.name }) : doc.name,
-          },
-          missing ? el('span', { class: 'disk-warn-dot', 'aria-label': t('md.docMissingDot') }) : '',
-          isDocDirty(doc) ? '● ' : '',
-          doc.name,
-        )
-        tab.addEventListener('click', () => switchTo(doc.id))
-        const close = el('button', { class: 'doc-close', type: 'button', 'aria-label': t('md.closeDoc', { name: doc.name }), title: withKey(t('md.closeTip'), 'md.close') }, icon('close', 12))
-        close.addEventListener('click', () => closeById(doc.id))
-        const item = el('span', { class: selected ? 'doc-item active' : 'doc-item' }, tab, close)
-        item.addEventListener('contextmenu', (ev) => {
-          ev.preventDefault()
-          ev.stopPropagation()
-          switchTo(doc.id)
-          showDocMenu(doc.id, { x: ev.clientX, y: ev.clientY })
-        })
-        // Shift+F10 / the context-menu key on a focused tab opens the same menu.
-        tab.addEventListener('keydown', (ev) => {
-          if (ev.key !== 'ContextMenu' && !(ev.shiftKey && ev.key === 'F10')) return
-          ev.preventDefault()
-          switchTo(doc.id)
-          showDocMenu(doc.id, tab)
-        })
-        return item
-      }),
-      addBtn,
-    )
+    docStrip.render()
   }
 
   function scheduleSideEffects(): void {
@@ -484,37 +457,21 @@ export function createMarkdownTab(): TabController {
     editor.focus()
   }
 
-  function showDocMenu(id: string, at: HTMLElement | { x: number; y: number }): void {
-    const others = set.docs.filter((d) => d.id !== id)
-    showMenu(
-      [
-        { label: t('md.newDoc'), icon: 'plus', hint: shortcutLabel('md.new'), run: newDocument },
-        { label: t('md.duplicateDoc'), icon: 'duplicate', hint: shortcutLabel('md.duplicate'), run: () => duplicateById(id) },
-        { label: t('md.closeTip'), icon: 'close', hint: shortcutLabel('md.close'), run: () => closeById(id) },
-        { label: t('md.closeOthers'), disabled: others.length === 0, run: () => closeOthers(id) },
-      ],
-      at,
-      t('md.docMenuAria'),
-    )
-  }
-
   function closeOthers(id: string): void {
-    const dirty = set.docs.filter((d) => d.id !== id && isDocDirty(d))
+    const others = otherDocs(set, id)
+    const dirty = others.filter(isDocDirty)
     if (dirty.length > 0 && !window.confirm(t('md.confirmCloseOthers', { n: dirty.length }))) return
-    for (const doc of set.docs) {
-      if (doc.id === id) continue
+    for (const doc of others) {
       stamps.delete(doc.id)
       diskState.delete(doc.id)
     }
-    set = { docs: set.docs.filter((d) => d.id === id), activeId: id }
+    set = keepOnly(set, id)
     loadActive()
   }
 
   /** Move to the next (+1) or previous (-1) document tab, wrapping around. */
   function cycleDoc(step: number): void {
-    const index = set.docs.findIndex((d) => d.id === set.activeId)
-    const next = set.docs[(index + step + set.docs.length) % set.docs.length]
-    if (next) switchTo(next.id)
+    switchTo(steppedId(set, step))
   }
 
   function closeById(id: string): void {
@@ -644,11 +601,6 @@ export function createMarkdownTab(): TabController {
   smallerBtn.addEventListener('click', () => adjustFont(-1))
   largerBtn.addEventListener('click', () => adjustFont(1))
   widthBtn.addEventListener('click', cycleColumnWidth)
-  // Right-click on the empty part of the tab strip: just "New document".
-  docStrip.addEventListener('contextmenu', (ev) => {
-    ev.preventDefault()
-    showMenu([{ label: t('md.newDoc'), icon: 'plus', hint: shortcutLabel('md.new'), run: newDocument }], { x: ev.clientX, y: ev.clientY })
-  })
   refreshBtn.addEventListener('click', () => void refreshFromDisk().catch((e) => toast(String(e), true)))
   // Re-check files when the user comes back from another app (where they may have edited them).
   window.addEventListener('focus', () => void checkDisk())
@@ -687,7 +639,6 @@ export function createMarkdownTab(): TabController {
     diskWarn.title = t('md.diskWarnTip')
     diskWarnText.textContent = t('md.diskWarn')
     renderHint()
-    docStrip.setAttribute('aria-label', t('md.docsAria'))
     outlineList.setAttribute('aria-label', t('md.outlineAria'))
     splitReset.title = t('md.splitReset')
     splitReset.setAttribute('aria-label', t('md.splitResetAria'))

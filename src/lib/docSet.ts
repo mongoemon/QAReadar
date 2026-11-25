@@ -59,6 +59,21 @@ export function setActive(set: DocSet, id: string): DocSet {
   return { ...set, activeId: id }
 }
 
+/** Every document except `id`. */
+export const otherDocs = (set: DocSet, id: string): readonly Doc[] => set.docs.filter((d) => d.id !== id)
+
+/** Close every document except `id`; an unknown id changes nothing. */
+export function keepOnly(set: DocSet, id: string): DocSet {
+  const docs = set.docs.filter((d) => d.id === id)
+  return docs.length === 0 ? set : { docs, activeId: id }
+}
+
+/** The document `step` tabs after the active one (negative: before), wrapping around. */
+export function steppedId(set: DocSet, step: number): string {
+  const index = set.docs.findIndex((d) => d.id === set.activeId)
+  return set.docs[(index + step + set.docs.length) % set.docs.length]?.id ?? set.activeId
+}
+
 function mapDoc(set: DocSet, id: string, change: (doc: Doc) => Doc): DocSet {
   return { ...set, docs: set.docs.map((d) => (d.id === id ? change(d) : d)) }
 }
