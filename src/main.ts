@@ -14,6 +14,7 @@ import { createJsonTab } from './ui/jsonTab'
 import { createLocatorTab } from './ui/locatorTab'
 import { createMarkdownTab } from './ui/markdownTab'
 import { createMergeTab } from './ui/mergeTab'
+import { createPdfTab } from './ui/pdfTab'
 import { createPalette } from './ui/palette'
 import { createTextTab } from './ui/textTab'
 import { STARTER_CSV, STARTER_HTML, STARTER_JSON, STARTER_MARKDOWN, STARTER_MERGE, STARTER_TEXT, type Starter } from './lib/samples'
@@ -34,7 +35,8 @@ const locatorTab = createLocatorTab()
 // Text sits after Markdown, so .txt keeps opening in Markdown; logs, CSV, YAML… open here.
 const textTab = createTextTab()
 const mergeTab = createMergeTab(STARTER_MERGE)
-const tabs: TabController[] = [markdownTab, textTab, jsonTab, locatorTab, mergeTab]
+const pdfTab = createPdfTab()
+const tabs: TabController[] = [markdownTab, textTab, jsonTab, locatorTab, mergeTab, pdfTab]
 let active: TabController = tabs[0]
 
 /** Kind used by the open picker and drag-drop: includes convertible extras, unlike save. */
@@ -53,7 +55,7 @@ const tabFor = (file: OpenedFile): TabController | undefined =>
   tabById(sniffKind(file.text))
 
 // ── chrome ────────────────────────────────────────────────────────────────
-const TAB_ICONS: Partial<Record<string, IconName>> = { markdown: 'fileText', json: 'braces', locator: 'crosshair', merge: 'gitCompare', text: 'notepad' }
+const TAB_ICONS: Partial<Record<string, IconName>> = { markdown: 'fileText', json: 'braces', locator: 'crosshair', merge: 'gitCompare', text: 'notepad', pdf: 'filePdf' }
 const tabButtons = new Map<TabController, HTMLButtonElement>()
 const tabList = el('div', { class: 'tabs', role: 'tablist' })
 for (const tab of tabs) {
@@ -241,7 +243,7 @@ const openFile = (): Promise<void> =>
 
 const save = (forceNew: boolean): Promise<void> =>
   guarded(async () => {
-    const saved = await saveTextFile(active.snapshot(), active.kind, forceNew)
+    const saved = active.save ? await active.save(forceNew) : await saveTextFile(active.snapshot(), active.kind, forceNew)
     if (!saved) return
     active.markSaved(saved.name, saved.handle)
     toast(t('msg.saved', { name: saved.name }))

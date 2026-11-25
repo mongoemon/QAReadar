@@ -7,7 +7,7 @@ export interface FileKind {
 }
 
 export interface WritableLike {
-  write(data: string): Promise<void>
+  write(data: string | Uint8Array): Promise<void>
   close(): Promise<void>
 }
 
@@ -23,6 +23,8 @@ export interface OpenedFile {
   readonly handle: FileHandleLike | null
   /** File's lastModified at read time; lets a tab detect edits made outside the app. */
   readonly lastModified?: number
+  /** Raw bytes, set for binary formats a tab opens itself (PDF); `text` is then empty. */
+  readonly bytes?: Uint8Array
   /** Built-in sample document: not worth remembering across reloads. */
   readonly sample?: boolean
 }
@@ -67,6 +69,9 @@ const pickerTypes = (kinds: readonly FileKind[]): PickerType[] =>
     accept: { [kind.mime]: kind.extensions.map((ext) => `.${ext}`) },
   }))
 
+/** Extensions read as bytes instead of text. */
+const BINARY_EXTENSIONS: ReadonlySet<string> = new Set(['pdf'])
+
 export async function readFile(
   file: File,
   handle: FileHandleLike | null,
@@ -75,6 +80,10 @@ export async function readFile(
     throw new Error(
       t('msg.tooLarge', { size: (file.size / 1048576).toFixed(1), max: MAX_FILE_BYTES / 1048576 }),
     )
+  }
+  if (BINARY_EXTENSIONS.has(file.name.slice(file.name.lastIndexOf('.') + 1).toLowerCase())) {
+    const bytes = new Uint8Array(await file.arrayBuffer())
+    return { name: file.name, text: '', bytes, handle, lastModified: file.lastModified }
   }
   return { name: file.name, text: await file.text(), handle, lastModified: file.lastModified }
 }
@@ -194,6 +203,45 @@ export async function saveTextFile(
           })
     const writable = await handle.createWritable()
     await writable.write(doc.text)
+    await writable.close()
+    return { name: handle.name, handle }
+  } catch (e) {
+    if (isAbort(e)) return null
+    throw e
+  }
+}
+
+export function downloadBytes(name: string, bytes: Uint8Array, mime: string): void {
+  const url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: mime }))
+  const a = document.createElement('a')
+  a.href = url
+  a.download = name
+  document.body.append(a)
+  a.click()
+  a.remove()
+  setTimeout(() => URL.revokeObjectURL(url), 10_000)
+}
+
+/** Like saveTextFile, for binary content. Without the picker API it downloads instead. */
+export async function saveBinaryFile(
+  name: string,
+  bytes: Uint8Array,
+  kind: FileKind,
+  existing: FileHandleLike | null,
+  forceNew: boolean,
+): Promise<SavedFile | null> {
+  const api = picker()
+  if (!api.showSaveFilePicker) {
+    downloadBytes(name, bytes, kind.mime)
+    return { name, handle: null }
+  }
+  try {
+    const handle =
+      !forceNew && existing
+        ? existing
+        : await api.showSaveFilePicker({ suggestedName: name, types: pickerTypes([kind]) })
+    const writable = await handle.createWritable()
+    await writable.write(bytes)
     await writable.close()
     return { name: handle.name, handle }
   } catch (e) {

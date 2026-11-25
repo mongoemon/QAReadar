@@ -142,6 +142,7 @@ export const DEFAULT_SHORTCUTS: Readonly<Record<string, DefaultSpec>> = {
   'tab.json': 'Alt+3',
   'tab.locator': 'Alt+4',
   'tab.merge': 'Alt+5',
+  'tab.pdf': 'Alt+6',
   'tab.next': 'Alt+PageDown',
   'tab.prev': 'Alt+PageUp',
   // Markdown
@@ -186,6 +187,11 @@ export const DEFAULT_SHORTCUTS: Readonly<Record<string, DefaultSpec>> = {
   'merge.both': 'Alt+Shift+3',
   'merge.none': 'Alt+Shift+4',
   'merge.swap': 'Alt+Shift+X',
+  // PDF
+  'pdf.undo': 'Alt+Z',
+  'pdf.redo': 'Alt+Shift+Z',
+  'pdf.next': 'Alt+Down',
+  'pdf.prev': 'Alt+Up',
 }
 
 export function resolveDefault(spec: DefaultSpec | undefined, platform: Platform): string | null {
@@ -194,7 +200,7 @@ export function resolveDefault(spec: DefaultSpec | undefined, platform: Platform
 }
 
 /** Which tab a command belongs to (from its id prefix); everything else is global. */
-const SCOPE_PREFIXES: Readonly<Record<string, string>> = { md: 'markdown', text: 'text', json: 'json', locator: 'locator', merge: 'merge' }
+const SCOPE_PREFIXES: Readonly<Record<string, string>> = { md: 'markdown', text: 'text', json: 'json', locator: 'locator', merge: 'merge', pdf: 'pdf' }
 
 export function scopeOf(id: string): string {
   return SCOPE_PREFIXES[id.split('.')[0]] ?? 'global'

@@ -1,6 +1,7 @@
 import type { Command } from '../lib/commands'
 import type {
   DocSnapshot,
+  SavedFile,
   FileHandleLike,
   FileKind,
   OpenedFile,
@@ -22,6 +23,8 @@ export interface TabController {
   open(file: OpenedFile): void
   /** Take a file dropped onto `target` inside this tab (e.g. onto one side of a diff); false = not handled. */
   acceptDrop?(file: OpenedFile, target: EventTarget | null): boolean
+  /** Tabs with binary documents (PDF) save themselves; null = cancelled. */
+  save?(forceNew: boolean): Promise<SavedFile | null>
   snapshot(): DocSnapshot
   markSaved(name: string, handle: FileHandleLike | null): void
   isDirty(): boolean
